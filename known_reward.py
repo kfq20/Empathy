@@ -39,8 +39,8 @@ delta = 0
 beta = 1
 count = 0
 env_obs_mode = 'complete'
-window_height = 8
-window_width = 5
+window_height = 16
+window_width = 15
 cnt = 0
 
 env = CleanupEnv()
@@ -173,12 +173,12 @@ def get_loss(batch, id, eps):
     self_loss = 0
     symp_loss = 0
     imagine_loss = 0
-    # random_start = random.randint(0, env.final_time-51)
-    for transition_idx in range(env.final_time):
+    random_start = random.randint(0, env.final_time-51)
+    for transition_idx in range(random_start, random_start + 50):
         inputs, inputs_next = [], []
         obs_transition, next_obs_transition, action_transition, avail_action_transition = obs[:, transition_idx, :, :, :, :], next_obs[:, transition_idx, :, :, :, :], action[:, transition_idx, :], avail_action[:, transition_idx]
         avail_next_action_transition = avail_next_action[:, transition_idx]
-        reward_transition = torch.tensor(reward[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
+        reward_transition = torch.tensor(reward[:, transition_idx], dtype=torch.float).to(device)
         done_transition = torch.tensor(done[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
         pad_transition = torch.tensor(pad[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
         other_action_transition = torch.tensor(other_action[:, transition_idx, :], dtype=torch.float).to(device)
@@ -230,43 +230,43 @@ def get_loss(batch, id, eps):
         symp_q_target = symp_q_target.max(1)[0].view(-1, 1)
 
         factor = [0 for _ in range(4)]
-        imagine_loss_1 = [0 for _ in range(4)]
-        imagine_loss_2 = [0 for _ in range(4)]
-        j_imagine_obs = [0 for _ in range(4)]
-        j_next_imagine_obs = [0 for _ in range(4)]
+        # imagine_loss_1 = [0 for _ in range(4)]
+        # imagine_loss_2 = [0 for _ in range(4)]
+        # j_imagine_obs = [0 for _ in range(4)]
+        # j_next_imagine_obs = [0 for _ in range(4)]
         j_action = [0 for _ in range(4)]
         j_q = [0 for _ in range(4)]
-        other_q_value = [0 for _ in range(4)]
-        other_q_target = [0 for _ in range(4)]
+        # other_q_value = [0 for _ in range(4)]
+        # other_q_target = [0 for _ in range(4)]
         other_reward = [0 for _ in range(4)]
-        agents_clone = [Qself(config).to(device) for _ in range(4)]
-        agents_target_clone = [Qself(config).to(device) for _ in range(4)]
+        # agents_clone = [Qself(config).to(device) for _ in range(4)]
+        # agents_target_clone = [Qself(config).to(device) for _ in range(4)]
 
         for j in range(4):
             if j == id:
                 continue
             else:
-                obs_j = torch.tensor(obs_transition[:, j, :, :, :], dtype=torch.float).to(device)
-                next_obs_j = torch.tensor(next_obs_transition[:, j, :, :, :], dtype=torch.float).to(device)
-                j_imagine_obs[j] = agents_imagine[id](obs_j).view(batch_size, env.channel, window_height, window_width)
-                j_next_imagine_obs[j] = agents_imagine[id](next_obs_j).view(batch_size, env.channel, window_height, window_width)
-                imagine_loss_2[j] = torch.mean(torch.abs(j_imagine_obs[j]-obs_j))
-                j_action[j] = other_action_transition[:, j].to(torch.int64)
-                j_action_onehot = F.one_hot(j_action[j], num_classes=env.action_space).squeeze()
-                agents_clone[j].load_state_dict(selfish_agents[i].state_dict())
-                j_imagine_obs[j] = j_imagine_obs[j].view(episode_num, -1)
-                j_inputs = torch.cat((j_imagine_obs[j], last_action), dim=1)
-                j_q[j] = agents_clone[j](j_inputs)
-                j_pi = F.softmax(j_q[j], dim=1)
-                imagine_loss_1[j] = F.cross_entropy(j_pi, j_action_onehot.to(torch.float))
-                other_q_value[j] = j_q[j].gather(1, (j_action[j]).view(-1, 1)).detach()
+                # obs_j = torch.tensor(obs_transition[:, j, :, :, :], dtype=torch.float).to(device)
+                # next_obs_j = torch.tensor(next_obs_transition[:, j, :, :, :], dtype=torch.float).to(device)
+                # j_imagine_obs[j] = agents_imagine[id](obs_j).view(batch_size, env.channel, window_height, window_width)
+                # j_next_imagine_obs[j] = agents_imagine[id](next_obs_j).view(batch_size, env.channel, window_height, window_width)
+                # imagine_loss_2[j] = torch.mean(torch.abs(j_imagine_obs[j]-obs_j))
+                # j_action[j] = other_action_transition[:, j].to(torch.int64)
+                # j_action_onehot = F.one_hot(j_action[j], num_classes=env.action_space).squeeze()
+                # agents_clone[j].load_state_dict(selfish_agents[i].state_dict())
+                # j_imagine_obs[j] = j_imagine_obs[j].view(episode_num, -1)
+                # j_inputs = torch.cat((j_imagine_obs[j], last_action), dim=1)
+                # j_q[j] = agents_clone[j](j_inputs)
+                # j_pi = F.softmax(j_q[j], dim=1)
+                # imagine_loss_1[j] = F.cross_entropy(j_pi, j_action_onehot.to(torch.float))
+                # other_q_value[j] = j_q[j].gather(1, (j_action[j]).view(-1, 1)).detach()
                 
-                agents_target_clone[j].load_state_dict(target_selfish_agents[i].state_dict())
-                j_next_imagine_obs[j] = j_next_imagine_obs[j].view(episode_num, -1)
-                next_j_inputs = torch.cat((j_next_imagine_obs[j], this_action), dim=1)
-                next_j_q_value = agents_target_clone[j](next_j_inputs)
-                other_q_target[j] = next_j_q_value.max(1)[0].view(-1, 1).detach()
-                other_reward[j] = (other_q_value[j] - gamma * other_q_target[j]).detach().clamp(min=0)
+                # agents_target_clone[j].load_state_dict(target_selfish_agents[i].state_dict())
+                # j_next_imagine_obs[j] = j_next_imagine_obs[j].view(episode_num, -1)
+                # next_j_inputs = torch.cat((j_next_imagine_obs[j], this_action), dim=1)
+                # next_j_q_value = agents_target_clone[j](next_j_inputs)
+                # other_q_target[j] = next_j_q_value.max(1)[0].view(-1, 1).detach()
+                other_reward[j] = reward_transition[:, j].view(-1, 1)
 
                 if transition_idx == 0:
                     factor[j] = torch.zeros((32, 1)).to(device).detach()
@@ -275,7 +275,8 @@ def get_loss(batch, id, eps):
                 else:
                     factor[j] = counterfactual_factor(id, j, selfish_agents, state, last_action, action_i, self_q_value, done_player[:, j])
 
-        self_target = reward_transition + gamma * self_q_target * (1 - done_transition)
+        my_reward = reward_transition[:, id].view(-1, 1)
+        self_target = my_reward + gamma * self_q_target * (1 - done_transition)
         self_td_error = (self_q_value - self_target)
         mask_self_td_error = (1 - pad_transition) * self_td_error
         self_loss += mask_self_td_error ** 2
@@ -286,7 +287,7 @@ def get_loss(batch, id, eps):
                 target_reward += (1 - factor[k]) * reward_transition + factor[k] * other_reward[k]
         if transition_idx == 20 and eps % 100 == 0 and id == 0:
             print("real obs:", obs_transition[0, 1, :, :, :])
-            print("imagine obs:", j_imagine_obs[1][0])
+            # print("imagine obs:", j_imagine_obs[1][0])
         if transition_idx == 20 and eps % 10 == 0 and id == 0:
             print("eps: ", eps, "===========================")
             print("factor: ",factor)
@@ -297,11 +298,11 @@ def get_loss(batch, id, eps):
         symp_td_error = symp_q_value - symp_target
         mask_symp_td_error = (1 - pad_transition) * symp_td_error
         symp_loss += mask_symp_td_error ** 2
-        imagine_loss += (1 - delta) * sum(imagine_loss_1) + delta * sum(imagine_loss_2)
+        # imagine_loss += (1 - delta) * sum(imagine_loss_1) + delta * sum(imagine_loss_2)
 
     return self_loss, symp_loss, imagine_loss
 
-wandb.init(project='Empathy', entity='kfq20', name='SH test')
+wandb.init(project='Empathy', entity='kfq20', name='modify cleanup known reward', notes='modify rnn')
 # total_time = 0
 # loss_time = 0
 # forward_time = 0
@@ -313,6 +314,9 @@ for ep in range(max_episode):
     total_reward = np.zeros(4)
     total_hunt_stag_num = 0
     total_hunt_hare_num = 0
+    total_collect_waste_num = 0
+    total_collect_apple_num = 0
+    total_punish_num = 0
     last_action = np.zeros((4, env.action_space))
     step = 0
     for i in range(4):
@@ -348,10 +352,17 @@ for ep in range(max_episode):
         # forward_end = time.time()
         # forward_time += forward_end - forward_start
         next_obs, reward, done, info = env.step(actions)
-        hunt_hare_num = info[0]
-        hunt_stag_num = info[1]
-        total_hunt_stag_num += hunt_stag_num
-        total_hunt_hare_num += hunt_hare_num
+        collect_waste_num = info[0]
+        collect_apple_num = info[1]
+        punish_num = info[2]
+        total_collect_waste_num += collect_waste_num
+        total_collect_apple_num += collect_apple_num
+        total_punish_num += punish_num
+
+        # hunt_hare_num = info[0]
+        # hunt_stag_num = info[1]
+        # total_hunt_stag_num += hunt_stag_num
+        # total_hunt_hare_num += hunt_hare_num
         for i in range(4):
             avail_next_action = env.__actionmask__(i)
             avail_next_actions.append(avail_next_action)
@@ -368,7 +379,7 @@ for ep in range(max_episode):
                     other_action[j] = actions[j]
             o[i].append(obs)
             a[i].append(actions)
-            r[i].append(reward[i])
+            r[i].append(reward)
             o_next[i].append(next_obs)
             avail_a[i].append(avail_actions[i])
             avail_a_next[i].append(avail_next_actions[i])
@@ -389,7 +400,7 @@ for ep in range(max_episode):
         for j in range(4):
             o[j].append(np.zeros((env.player_num, env.channel, window_height, window_width)))
             a[j].append([0,0,0,0])
-            r[j].append(0)
+            r[j].append([0,0,0,0])
             o_next[j].append(np.zeros((env.player_num, env.channel, window_height, window_width)))
             avail_a[j].append(np.zeros(env.action_space))
             avail_a_next[j].append(np.zeros(env.action_space))
@@ -406,7 +417,7 @@ for ep in range(max_episode):
         total_self_loss = 0
         total_symp_loss = 0
         total_imagine_loss = 0
-        wandb.log({'reward_1':total_reward[0], 'reward_2':total_reward[1], 'reward_3':total_reward[2], 'reward_4':total_reward[3], 'total_reward':sum(total_reward), 'hare_num':total_hunt_hare_num, 'stag_num':total_hunt_stag_num})
+        wandb.log({'reward_1':total_reward[0], 'reward_2':total_reward[1], 'reward_3':total_reward[2], 'reward_4':total_reward[3], 'total_reward':sum(total_reward), 'waste_num':total_collect_waste_num, 'apple_num':total_collect_apple_num, 'punish num':total_punish_num})
         for i in range(4):
             obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad = buffer[i].sample(min(buffer[i].size(), batch_size))
             episode_num = obs.shape[0]
@@ -430,10 +441,10 @@ for ep in range(max_episode):
             optim_symp[i].step()
             total_symp_loss += symp_loss.item()
 
-            optim_imagine[i].zero_grad()
-            imagine_loss.backward()
-            optim_imagine[i].step()
-            total_imagine_loss += imagine_loss
+            # optim_imagine[i].zero_grad()
+            # imagine_loss.backward()
+            # optim_imagine[i].step()
+            # total_imagine_loss += imagine_loss
             # loss_end = time.time()
             # loss_time += loss_end - loss_time_start
             

@@ -11,8 +11,8 @@ import time
 device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 
 gamma = 0.9
-max_episode = 10000
-anneal_eps = 1000
+max_episode = 100000
+anneal_eps = 5000
 batch_size = 32
 # similar_factor = 1
 alpha = 0.5

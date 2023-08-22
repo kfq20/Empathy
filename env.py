@@ -45,14 +45,14 @@ class CleanupEnv():
         self.threshold_depletion = 0.4
         self.window_size = 7
         self.punishment = 50
-        self.action_num = 7
+        self.action_space = 7
 
         self.waste_num_origin = 50
         self.waste_cost = 1
         self.apple_reward = 1
         self.beam_cost = 1
         self.waste_regeneration_rate = 0.4
-        self.final_time = 100
+        self.final_time = 1000
         self.channel = self.player_num + 3
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
 
@@ -147,7 +147,7 @@ class CleanupEnv():
                         collect_waste_num += 1
                         break
             
-            elif action == 6:
+            elif action == 6: # punish beam
                 rewards[id] -= self.beam_cost
                 target_pos = copy.deepcopy(self.player_pos[id])
                 beam_blocked = False
@@ -414,7 +414,7 @@ class StagHuntEnv():
         self.width = 8
         self.stag_reward = 10
         self.hare_reward = 1
-        self.final_time = 50
+        self.final_time = 30
         self.first_hunt_time = 0
         self.channel = self.player_num + 2
         self.prey_moving_mode = 'random'
@@ -462,6 +462,8 @@ class StagHuntEnv():
         hunt_hare_players = []
         hunt_stag_players = []
         for id in range(self.player_num):
+            if self.terminal[id] == 1:
+                continue
             action = action_dict[id]
             if self.__actionmask__(id)[action] == 0:
                 action = 4
