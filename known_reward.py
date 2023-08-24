@@ -181,7 +181,7 @@ def get_loss(batch, id, eps):
         reward_transition = torch.tensor(reward[:, transition_idx], dtype=torch.float).to(device)
         done_transition = torch.tensor(done[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
         pad_transition = torch.tensor(pad[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
-        other_action_transition = torch.tensor(other_action[:, transition_idx, :], dtype=torch.float).to(device)
+        # other_action_transition = torch.tensor(other_action[:, transition_idx, :], dtype=torch.float).to(device)
         obs_i = obs_transition[:, id, :, :, :]
         done_player = np.zeros((batch_size, env.player_num))
         for j in range(4):
@@ -234,8 +234,8 @@ def get_loss(batch, id, eps):
         # imagine_loss_2 = [0 for _ in range(4)]
         # j_imagine_obs = [0 for _ in range(4)]
         # j_next_imagine_obs = [0 for _ in range(4)]
-        j_action = [0 for _ in range(4)]
-        j_q = [0 for _ in range(4)]
+        # j_action = [0 for _ in range(4)]
+        # j_q = [0 for _ in range(4)]
         # other_q_value = [0 for _ in range(4)]
         # other_q_target = [0 for _ in range(4)]
         other_reward = [0 for _ in range(4)]
@@ -268,12 +268,13 @@ def get_loss(batch, id, eps):
                 # other_q_target[j] = next_j_q_value.max(1)[0].view(-1, 1).detach()
                 other_reward[j] = reward_transition[:, j].view(-1, 1)
 
-                if transition_idx == 0:
-                    factor[j] = torch.zeros((32, 1)).to(device).detach()
+                # if transition_idx == 0:
+                #     factor[j] = torch.zeros((32, 1)).to(device).detach()
                 # factor[j] = snowdrift_compute_factor(obs_i, obs_j, next_obs_i, next_obs_j, action_i, j_action[j], id, j)
                 # factor[j] = cleanup_compute_factor(obs_i, obs_j, next_obs_i, next_obs_j, action_i, j_action[j], id, j)
-                else:
-                    factor[j] = counterfactual_factor(id, j, selfish_agents, state, last_action, action_i, self_q_value, done_player[:, j])
+                # else:
+                #     factor[j] = counterfactual_factor(id, j, selfish_agents, state, last_action, action_i, self_q_value, done_player[:, j])
+                factor[j] = torch.ones((32, 1)).to(device).detach()
 
         my_reward = reward_transition[:, id].view(-1, 1)
         self_target = my_reward + gamma * self_q_target * (1 - done_transition)
@@ -281,10 +282,14 @@ def get_loss(batch, id, eps):
         mask_self_td_error = (1 - pad_transition) * self_td_error
         self_loss += mask_self_td_error ** 2
 
-        target_reward = 0
+        # target_reward = 0
+        target_reward = reward_transition
+        # for k in range(4):
+        #     if isinstance(factor[k], torch.Tensor):
+        #         target_reward += (1 - factor[k]) * reward_transition + factor[k] * other_reward[k]
         for k in range(4):
             if isinstance(factor[k], torch.Tensor):
-                target_reward += (1 - factor[k]) * reward_transition + factor[k] * other_reward[k]
+                target_reward += factor[k] * other_reward[k]
         if transition_idx == 20 and eps % 100 == 0 and id == 0:
             print("real obs:", obs_transition[0, 1, :, :, :])
             # print("imagine obs:", j_imagine_obs[1][0])
@@ -302,7 +307,7 @@ def get_loss(batch, id, eps):
 
     return self_loss, symp_loss, imagine_loss
 
-wandb.init(project='Empathy', entity='kfq20', name='modify cleanup known reward', notes='modify rnn')
+wandb.init(project='Empathy', entity='kfq20', name='prosocial', notes='prosocial modify cleanup')
 # total_time = 0
 # loss_time = 0
 # forward_time = 0
