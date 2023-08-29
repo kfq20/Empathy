@@ -1,0 +1,148 @@
+2023-08-25 10:34:15,947 INFO    StreamThr :1734456 [internal.py:wandb_internal():88] W&B internal server running at pid: 1734456, started at: 2023-08-25 10:34:15.946165
+2023-08-25 10:34:15,952 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: status
+2023-08-25 10:34:15,952 DEBUG   SenderThread:1734456 [sender.py:send_request():317] send_request: status
+2023-08-25 10:34:15,955 DEBUG   SenderThread:1734456 [sender.py:send():303] send: header
+2023-08-25 10:34:15,955 INFO    WriterThread:1734456 [datastore.py:open_for_write():75] open: /home/fanqi/project/wandb/run-20230825_103415-1mxhk1nh/run-1mxhk1nh.wandb
+2023-08-25 10:34:16,001 DEBUG   SenderThread:1734456 [sender.py:send():303] send: run
+2023-08-25 10:34:21,003 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:26,005 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:31,007 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:36,009 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:41,011 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:46,013 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:51,014 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:34:54,503 ERROR   SenderThread:1734456 [retry.py:__call__():154] Retry attempt failed:
+Traceback (most recent call last):
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/connectionpool.py", line 449, in _make_request
+    six.raise_from(e, None)
+  File "<string>", line 3, in raise_from
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/connectionpool.py", line 444, in _make_request
+    httplib_response = conn.getresponse()
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/http/client.py", line 1344, in getresponse
+    response.begin()
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/http/client.py", line 307, in begin
+    version, status, reason = self._read_status()
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/http/client.py", line 268, in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/socket.py", line 669, in readinto
+    return self._sock.recv_into(b)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/ssl.py", line 1241, in recv_into
+    return self.read(nbytes, buffer)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/ssl.py", line 1099, in read
+    return self._sslobj.read(len, buffer)
+socket.timeout: The read operation timed out
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/requests/adapters.py", line 489, in send
+    resp = conn.urlopen(
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    retries = retries.increment(
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/util/retry.py", line 550, in increment
+    raise six.reraise(type(error), error, _stacktrace)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/packages/six.py", line 770, in reraise
+    raise value
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/connectionpool.py", line 703, in urlopen
+    httplib_response = self._make_request(
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/connectionpool.py", line 451, in _make_request
+    self._raise_timeout(err=e, url=url, timeout_value=read_timeout)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/urllib3/connectionpool.py", line 340, in _raise_timeout
+    raise ReadTimeoutError(
+urllib3.exceptions.ReadTimeoutError: HTTPSConnectionPool(host='api.wandb.ai', port=443): Read timed out. (read timeout=10)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/wandb/sdk/lib/retry.py", line 113, in __call__
+    result = self._call_fn(*args, **kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/wandb/sdk/internal/internal_api.py", line 210, in execute
+    return self.client.execute(*args, **kwargs)  # type: ignore
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/wandb/vendor/gql-0.2.0/wandb_gql/client.py", line 52, in execute
+    result = self._get_result(document, *args, **kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/wandb/vendor/gql-0.2.0/wandb_gql/client.py", line 60, in _get_result
+    return self.transport.execute(document, *args, **kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/wandb/vendor/gql-0.2.0/wandb_gql/transport/requests.py", line 38, in execute
+    request = requests.post(self.url, **post_args)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/requests/api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/requests/sessions.py", line 587, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/requests/sessions.py", line 701, in send
+    r = adapter.send(request, **kwargs)
+  File "/home/fanqi/anaconda3/envs/ssd/lib/python3.8/site-packages/requests/adapters.py", line 578, in send
+    raise ReadTimeout(e, request=request)
+requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.wandb.ai', port=443): Read timed out. (read timeout=10)
+2023-08-25 10:34:56,016 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:01,017 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:06,020 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:11,021 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:17,028 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: poll_exit
+2023-08-25 10:35:22,032 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:27,034 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:32,036 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:37,038 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:42,042 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:47,044 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:52,046 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:35:57,048 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:02,052 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:07,054 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:12,062 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:17,064 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:22,066 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:27,067 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:32,070 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:37,071 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:42,074 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:47,076 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:52,079 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:36:57,081 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:02,082 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:07,086 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:12,088 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:17,090 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:22,091 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:27,093 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:32,096 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:37,098 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:42,100 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:47,101 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:52,104 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:37:57,106 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:02,109 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:07,111 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:12,113 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:17,115 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:22,118 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:27,120 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:32,122 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:37,124 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:42,126 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:47,128 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:52,131 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:38:57,132 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:02,135 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:07,137 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:12,139 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:17,141 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:22,143 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:27,144 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:32,146 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:37,147 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:42,149 DEBUG   HandlerThread:1734456 [handler.py:handle_request():139] handle_request: keepalive
+2023-08-25 10:39:45,310 WARNING StreamThr :1734456 [internal.py:is_dead():385] Internal process exiting, parent pid 1734246 disappeared
+2023-08-25 10:39:45,310 ERROR   StreamThr :1734456 [internal.py:wandb_internal():147] Internal process shutdown.
+2023-08-25 10:39:46,109 INFO    WriterThread:1734456 [datastore.py:close():279] close: /home/fanqi/project/wandb/run-20230825_103415-1mxhk1nh/run-1mxhk1nh.wandb
+2023-08-25 10:39:46,153 INFO    HandlerThread:1734456 [handler.py:finish():814] shutting down handler
+2023-08-25 10:45:29,610 INFO    SenderThread:1734456 [dir_watcher.py:__init__():216] watching files in: /home/fanqi/project/wandb/run-20230825_103415-1mxhk1nh/files
+2023-08-25 10:45:29,610 INFO    SenderThread:1734456 [sender.py:_start_run_threads():928] run started: 1mxhk1nh with start time 1692930855.942968
+2023-08-25 10:45:29,610 INFO    SenderThread:1734456 [sender.py:finish():1331] shutting down sender
+2023-08-25 10:45:29,610 INFO    SenderThread:1734456 [dir_watcher.py:finish():362] shutting down directory watcher
+2023-08-25 10:45:30,610 INFO    SenderThread:1734456 [dir_watcher.py:finish():392] scan: /home/fanqi/project/wandb/run-20230825_103415-1mxhk1nh/files
+2023-08-25 10:45:30,611 INFO    SenderThread:1734456 [dir_watcher.py:finish():406] scan save: /home/fanqi/project/wandb/run-20230825_103415-1mxhk1nh/files/config.yaml config.yaml
+2023-08-25 10:45:30,611 INFO    SenderThread:1734456 [file_pusher.py:finish():168] shutting down file pusher
+2023-08-25 10:45:30,611 INFO    SenderThread:1734456 [file_pusher.py:join():173] waiting for file pusher
+2023-08-25 10:45:32,495 INFO    Thread-15 :1734456 [upload_job.py:push():143] Uploaded file /home/fanqi/project/wandb/run-20230825_103415-1mxhk1nh/files/config.yaml

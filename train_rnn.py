@@ -23,7 +23,7 @@ device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 # optim_selfish = [torch.optim.Adam(selfish_agents[i].parameters(), lr=1e-4) for i in range(4)]
 # buffer = [ReplayBuffer(capacity=5000, id=i) for i in range(4)]
 
-gamma = 0.95
+gamma = 0.99
 max_episode = 100000
 anneal_eps = 5000
 batch_size = 32

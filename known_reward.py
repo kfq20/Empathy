@@ -6,28 +6,13 @@ import torch.nn.functional as F
 import wandb
 
 # device = torch.device("cpu")
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
-
-# symp_agents = [RNN().to(device) for _ in range(4)]
-# target_symp_agents = [RNN().to(device) for _ in range(4)]
-# selfish_agents = [Qself().to(device) for _ in range(4)]
-# target_selfish_agents = [Qself().to(device) for _ in range(4)]
-# for i in range(4):
-#     target_symp_agents[i].load_state_dict(symp_agents[i].state_dict())
-#     target_selfish_agents[i].load_state_dict(selfish_agents[i].state_dict())
-
-# agents_imagine = [Imagine().to(device) for _ in range(4)]
-
-# optim_symp = [torch.optim.Adam(symp_agents[i].parameters(), lr=1e-4) for i in range(4)]
-# optim_imagine = [torch.optim.Adam(agents_imagine[i].parameters(), lr=1e-4) for i in range(4)]
-# optim_selfish = [torch.optim.Adam(selfish_agents[i].parameters(), lr=1e-4) for i in range(4)]
-# buffer = [ReplayBuffer(capacity=5000, id=i) for i in range(4)]
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 gamma = 0.95
 max_episode = 100000
 anneal_eps = 5000
 batch_size = 32
-# similar_factor = 1
+
 alpha = 0.5
 target_update = 10
 minimal_size = 50
@@ -174,7 +159,7 @@ def get_loss(batch, id, eps):
     symp_loss = 0
     imagine_loss = 0
     random_start = random.randint(0, env.final_time-51)
-    for transition_idx in range(random_start, random_start + 50):
+    for transition_idx in range(env.final_time):
         inputs, inputs_next = [], []
         obs_transition, next_obs_transition, action_transition, avail_action_transition = obs[:, transition_idx, :, :, :, :], next_obs[:, transition_idx, :, :, :, :], action[:, transition_idx, :], avail_action[:, transition_idx]
         avail_next_action_transition = avail_next_action[:, transition_idx]
@@ -277,28 +262,31 @@ def get_loss(batch, id, eps):
                 factor[j] = torch.ones((32, 1)).to(device).detach()
 
         my_reward = reward_transition[:, id].view(-1, 1)
+        
         self_target = my_reward + gamma * self_q_target * (1 - done_transition)
         self_td_error = (self_q_value - self_target)
         mask_self_td_error = (1 - pad_transition) * self_td_error
         self_loss += mask_self_td_error ** 2
 
         # target_reward = 0
-        target_reward = reward_transition
+        # false_reward =reward_transition
+        target_reward = my_reward
         # for k in range(4):
         #     if isinstance(factor[k], torch.Tensor):
         #         target_reward += (1 - factor[k]) * reward_transition + factor[k] * other_reward[k]
         for k in range(4):
             if isinstance(factor[k], torch.Tensor):
                 target_reward += factor[k] * other_reward[k]
-        if transition_idx == 20 and eps % 100 == 0 and id == 0:
-            print("real obs:", obs_transition[0, 1, :, :, :])
+                # false_reward += factor[k] * other_reward[k]
+        # if transition_idx == 20 and eps % 100 == 0 and id == 0:
+        #     print("real obs:", obs_transition[0, 1, :, :, :])
             # print("imagine obs:", j_imagine_obs[1][0])
-        if transition_idx == 20 and eps % 10 == 0 and id == 0:
-            print("eps: ", eps, "===========================")
-            print("factor: ",factor)
-            print("reward: ", reward_transition)
-            print("other reward: ", other_reward)
-            print("action: ", action_transition)
+        # if eps % 10 == 0 and id == 0:
+        #     print("eps: ", eps, "===========================")
+        #     print("factor: ",factor)
+        #     print("reward: ", reward_transition)
+        #     print("other reward: ", other_reward)
+        #     print("action: ", action_transition)
         symp_target = target_reward + gamma * symp_q_target * (1 - done_transition)
         symp_td_error = symp_q_value - symp_target
         mask_symp_td_error = (1 - pad_transition) * symp_td_error
@@ -307,7 +295,7 @@ def get_loss(batch, id, eps):
 
     return self_loss, symp_loss, imagine_loss
 
-wandb.init(project='Empathy', entity='kfq20', name='prosocial', notes='prosocial modify cleanup')
+wandb.init(project='Empathy', entity='kfq20', name='prosocial', notes='prosocial modify cleanup clip rnn')
 # total_time = 0
 # loss_time = 0
 # forward_time = 0

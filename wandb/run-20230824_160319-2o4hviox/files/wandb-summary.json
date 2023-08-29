@@ -1,0 +1,1 @@
+{"reward_1": -3.0, "reward_2": -4.0, "reward_3": -2.0, "reward_4": -6.0, "total_reward": -15.0, "waste_num": 2, "apple_num": 0, "punish num": 0, "_timestamp": 1692930178.2683082, "_runtime": 65978.4732041359, "_step": 20955, "self_loss": 0.2564311809837818, "symp_loss": 1253.3297696113586, "imagine_loss": 0, "_wandb": {"runtime": 65971}}

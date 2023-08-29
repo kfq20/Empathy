@@ -39,10 +39,10 @@ class CleanupEnv():
         self.width = 23
         self.clean_beam_len = 5
         self.fire_beam_len = 5
-        self.waste_spawn_prob = 0.5
-        self.apple_respawn_prob = 0.05
-        self.threshold_restoration = 0.0
-        self.threshold_depletion = 0.4
+        # self.waste_spawn_prob = 0.5
+        # self.apple_respawn_prob = 0.05
+        # self.threshold_restoration = 0.0
+        # self.threshold_depletion = 0.4
         self.window_size = 7
         self.punishment = 50
         self.action_space = 7
@@ -51,8 +51,8 @@ class CleanupEnv():
         self.waste_cost = 1
         self.apple_reward = 1
         self.beam_cost = 1
-        self.waste_regeneration_rate = 0.4
-        self.final_time = 1000
+        self.waste_spawn_rate = 0.1
+        self.final_time = 300
         self.channel = self.player_num + 3
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
 
@@ -173,7 +173,7 @@ class CleanupEnv():
         apples_num = np.sum(self.state[-1, self.height - 5 : self.height, :])
         apples_regeneration_rate = 1 - waste_num / self.waste_num_origin
         apples_regeneration_distribution = [1 - apples_regeneration_rate, apples_regeneration_rate]
-        waste_regeneration_distribution = [1 - self.waste_regeneration_rate, self.waste_regeneration_rate]
+        waste_regeneration_distribution = [1 - self.waste_spawn_rate, self.waste_spawn_rate]
         is_new_waste = np.random.choice(2, size=(1,), p=waste_regeneration_distribution)
         is_new_apple = np.random.choice(2, size=(1,), p=apples_regeneration_distribution)
         if is_new_waste[0] == 1 and waste_num < self.waste_num_origin:
