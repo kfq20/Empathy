@@ -49,7 +49,7 @@ class CleanupEnv():
 
         self.waste_num_origin = 50
         self.waste_cost = 1
-        self.apple_reward = 1
+        self.apple_reward = 10
         self.beam_cost = 1
         self.waste_spawn_rate = 0.1
         self.final_time = 300
@@ -133,6 +133,7 @@ class CleanupEnv():
             if self.state[-1, self.player_pos[id, 0], self.player_pos[id, 1]] == 1:
                 collect_apple_num += 1
                 rewards[id] += self.apple_reward
+                self.state[-1, self.player_pos[id, 0], self.player_pos[id, 1]] = 0
 
             elif action == 5: # clean beam
                 rewards[id] -= self.beam_cost
@@ -167,7 +168,6 @@ class CleanupEnv():
                     if beam_blocked:
                         break
                 
-            
         dones = [False for _ in range(4)]
         waste_num = np.sum(self.state[-2, 0 : 6, :])
         apples_num = np.sum(self.state[-1, self.height - 5 : self.height, :])
@@ -582,16 +582,16 @@ class ModifiedCleanupEnv():
         self.player_num = 4
         self.height = 8
         self.width = 8
-        self.waste_spawn_prob = 0.5
+        # self.waste_spawn_prob = 0.5
         # self.apple_respawn_prob = 0.05
         self.window_size = 2
-        self.action_num = 6
+        self.action_space = 7
 
-        self.waste_num_origin = 8
+        self.waste_num_origin = 6
         self.waste_cost = 1
         self.apple_reward = 10
-        self.waste_regeneration_rate = 0.4
-        self.final_time = 1000
+        self.waste_spawn_prob = 0.25
+        self.final_time = 100
         self.channel = self.player_num + 3
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
 
@@ -626,7 +626,7 @@ class ModifiedCleanupEnv():
     def step(self, action_dict):
         self.time += 1
         collect_waste_num = 0
-        # collect_apple_num = 0
+        collect_apple_num = 0
         # punish_num = 0
         rewards = [0 for _ in range(4)]
         # np.random.shuffle(self.order)
@@ -656,21 +656,24 @@ class ModifiedCleanupEnv():
                 self.player_pos[id, 1] += 1
 
             elif action == 5:
-                assert self.state[self.player_num + 1, x, y] + self.state[self.player_num + 2, x, y] > 0, 'link ERROR'
+                # assert self.state[self.player_num + 1, x, y] + self.state[self.player_num + 2, x, y] > 0, 'link ERROR'
                 if x < 2:
                     self.state[self.player_num + 1, x, y] = 0
                     rewards[id] -= self.waste_cost
                     collect_waste_num += 1
-                elif x >= self.height - 2:
+
+            elif action == 6:
+                if x >= self.height - 2:
                     self.state[self.player_num + 2, x, y] = 0
                     rewards[id] += self.apple_reward
+                    collect_apple_num += 1
                 
         dones = [False for _ in range(4)]
         waste_num = np.sum(self.state[-2, 0 : 2, :])
         apples_num = np.sum(self.state[-1, self.height - 2 : self.height, :])
         apples_regeneration_rate = 1 - waste_num / self.waste_num_origin
         apples_regeneration_distribution = [1 - apples_regeneration_rate, apples_regeneration_rate]
-        waste_regeneration_distribution = [1 - self.waste_regeneration_rate, self.waste_regeneration_rate]
+        waste_regeneration_distribution = [1 - self.waste_spawn_prob, self.waste_spawn_prob]
         is_new_waste = np.random.choice(2, size=(1,), p=waste_regeneration_distribution)
         is_new_apple = np.random.choice(2, size=(1,), p=apples_regeneration_distribution)
         if is_new_waste[0] == 1 and waste_num < self.waste_num_origin:
@@ -693,7 +696,7 @@ class ModifiedCleanupEnv():
             for id in range(4):
                 dones[id] = True
 
-        return self.__obs__(), np.array(rewards), np.array(dones), collect_waste_num
+        return self.__obs__(), np.array(rewards), np.array(dones), [collect_waste_num, collect_apple_num]
 
     def __obs__(self):
         obs = []
@@ -707,7 +710,7 @@ class ModifiedCleanupEnv():
         return np.array(obs)
 
     def __actionmask__(self, id):
-        actions = np.zeros((6,))
+        actions = np.zeros((7,))
         # find current position
         x, y = self.player_pos[id, 0], self.player_pos[id, 1]
         if x == 0 or np.sum(self.state[:self.player_num, x-1, y]) > 0:
@@ -718,7 +721,8 @@ class ModifiedCleanupEnv():
             actions[2] = 1
         if y == self.width-1 or np.sum(self.state[:self.player_num, x, y+1]) > 0:
             actions[3] = 1
-        if np.sum(self.state[self.player_num+1:self.player_num+3, x, y]) == 0:  # not allowed to link/unlink
+        if self.state[-2, x, y] == 0:  # not allowed to link/unlink
             actions[5] = 1
-
+        if self.state[-1, x, y] == 0:
+            actions[6] = 1
         return 1 - actions  # available actions---output 1

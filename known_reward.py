@@ -295,7 +295,7 @@ def get_loss(batch, id, eps):
 
     return self_loss, symp_loss, imagine_loss
 
-wandb.init(project='Empathy', entity='kfq20', name='prosocial', notes='prosocial modify cleanup clip rnn')
+wandb.init(project='Empathy', entity='kfq20', name='prosocial DQN', notes='prosocial modify cleanup clip rnn')
 # total_time = 0
 # loss_time = 0
 # forward_time = 0
