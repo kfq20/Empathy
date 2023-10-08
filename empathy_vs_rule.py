@@ -8,7 +8,7 @@ from torch.distributions import Categorical
 import time
 
 # device = torch.device("cpu")
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 
 MAX_REWARD = 1
@@ -46,6 +46,7 @@ symp_agents = [ActorCritic(config).to(device) for _ in range(4)]
 # target_symp_agents = [ActorCritic(config).to(device) for _ in range(4)]
 selfish_agents = [Qself(config).to(device) for _ in range(4)]
 target_selfish_agents = [Qself(config).to(device) for _ in range(4)]
+# target_symp_agents[i].load_state_dict(symp_agents[i].state_dict())
 for i in range(4):
     # target_symp_agents[i].load_state_dict(symp_agents[i].state_dict())
     target_selfish_agents[i].load_state_dict(selfish_agents[i].state_dict())
@@ -57,62 +58,11 @@ optim_imagine = [torch.optim.Adam(agents_imagine[i].parameters(), lr=1e-4) for i
 optim_selfish = [torch.optim.Adam(selfish_agents[i].parameters(), lr=1e-4) for i in range(4)]
 buffer = [ReplayBuffer(capacity=5000, id=i) for i in range(4)]
 
-def cleanup_compute_factor(my_state, other_state, my_next_state, other_next_state, my_action, other_action, i, j):
-    my_state = my_state.detach().cpu().numpy()
-    my_next_state = my_next_state.detach().cpu().numpy()
-    other_state = other_state.detach().cpu().numpy()
-    other_next_state = other_next_state.detach().cpu().numpy()
-    my_action = my_action.squeeze().detach().cpu().numpy()
-    other_action = other_action.squeeze().detach().cpu().numpy()
-    my_value = 0
-    other_value = 0
-    my_pos = np.argwhere(my_state[0, i, :, :] == 1)
-    my_next_pos = np.argwhere(my_next_state[0, i, :, :] == 1)
-    other_pos = np.argwhere(other_state[0, j, :, :] == 1)
-    other_next_pos = np.argwhere(other_next_state[0, j, :, :] == 1)
-    my_rubbish_pos = np.argwhere(my_state[0, -2, :, :] == 1)
-    my_apple_pos = np.argwhere(my_state[0, -1, :, :] == 1)
-    my_next_rubbish_pos = np.argwhere(my_next_state[0, -2, :, :] == 1)
-    my_next_apple_pos = np.argwhere(my_next_state[0, -1, :, :] == 1)
-    other_rubbish_pos = np.argwhere(other_state[0, -2, :, :] == 1)
-    other_apple_pos = np.argwhere(other_state[0, -1, :, :] == 1)
-    other_next_rubbish_pos = np.argwhere(other_next_state[0, -2, :, :] == 1)
-    other_next_apple_pos = np.argwhere(other_next_state[0, -1, :, :] == 1)
-    my_rubbish_dist = np.sum(np.abs(my_pos - my_rubbish_pos), axis=1)
-    my_apple_dist = np.sum(np.abs(my_pos - my_apple_pos), axis=1)
-    my_next_rubbish_dist = np.sum(np.abs(my_next_pos - my_next_rubbish_pos), axis=1)
-    my_next_apple_dist = np.sum(np.abs(my_next_pos - my_next_apple_pos), axis=1)
-    other_rubbish_dist = np.sum(np.abs(other_pos - other_rubbish_pos), axis=1)
-    other_apple_dist = np.sum(np.abs(other_pos - other_apple_pos), axis=1)
-    other_next_rubbish_dist = np.sum(np.abs(other_next_pos - other_next_rubbish_pos), axis=1)
-    other_next_apple_dist = np.sum(np.abs(other_next_pos - other_next_apple_pos), axis=1)
-    if my_action == 5:
-        my_value = 2
-    elif my_action == 6:
-        my_value = -2
-        # if my_state[k, -2, my_pos[0][0], my_pos[0][1]] == 1: # I pick up the rubbish
-        #     my_value = 2
-        # elif my_state[k, -1, my_pos[0][0], my_pos[0][1]] == 1: # I pick up the apple
-        #     my_value = -2
-    else:
-        my_value = np.sum(np.exp(-my_next_rubbish_dist)) - np.sum(np.exp(-my_rubbish_dist)) - np.sum(np.exp(-my_next_apple_dist)) + np.sum(np.exp(-my_apple_dist))
-    if other_action == 5:
-        other_value = 2
-    elif other_action == 6:
-        other_value = -2
-        # if other_state[j, -2, other_pos[0][0], other_pos[0][1]] == 1: # other pick up the rubbish
-        #     other_value = 2
-        # elif other_state[j, -1, other_pos[0][0], other_pos[0][1]] == 1: # other pick up the apple
-        #     other_value = -2
-    else:
-        other_value = np.sum(np.exp(-other_next_rubbish_dist)) - np.sum(np.exp(-other_rubbish_dist)) - np.sum(np.exp(-other_next_apple_dist)) + np.sum(np.exp(-other_apple_dist))
-    factor = np.tanh(other_value - my_value)
-    
-    return torch.tensor(factor, dtype=torch.float).view(-1, 1).to(device).detach() 
-
-def counterfactual_factor(my_id, other_id, agents, state, last_action, my_action, real_q_value, observable):
+def counterfactual_factor(my_id, other_id, agents, state, last_action, my_action, real_q_value, observable, avail_action):
     counterfactual_result = []
+    log = []
     counterfactual_result.append(real_q_value)
+    log.append(real_q_value.item())
     other_action = copy.deepcopy(last_action[:, env.action_space*other_id:env.action_space*(other_id+1)])
     virtual_action = torch.nonzero(other_action == 0).view(1, env.action_space-1, 2)
     other_action.fill_(0)
@@ -123,45 +73,17 @@ def counterfactual_factor(my_id, other_id, agents, state, last_action, my_action
         # cf_input = torch.cat((state, last_action), dim=1)
         cf_q_value = agents[my_id](state, last_action).gather(1, my_action)
         counterfactual_result.append(cf_q_value)
+        log.append(cf_q_value.item())
         other_action.fill_(0)
     cf_result = torch.transpose(torch.stack(counterfactual_result), 0, 1)
     min_value, _ = cf_result.min(dim=1)
     max_value, _ = cf_result.max(dim=1)
     factor = 2 * (real_q_value - min_value) / (max_value - min_value) - 1
+    if_log = random.random()
+    if if_log < 0.001:
+        print("other action", virtual_action)
+        print(log)
     return factor.view(-1, 1).to(device).detach() * torch.tensor(observable).to(device).view(-1, 1)
-
-def snowdrift_compute_factor(my_state, other_state, my_next_state, other_next_state, my_action, other_action, i, j):
-    other_state = other_state.detach().cpu().numpy()
-    other_next_state = other_next_state.detach().cpu().numpy()
-    my_action = my_action.squeeze().detach().cpu().numpy()
-    other_action = other_action.squeeze().detach().cpu().numpy()
-    factor = []
-    for k in range(32):
-        my_value = 0
-        other_value = 0
-        my_pos = np.argwhere(my_state[k, i, :, :] == 1)
-        my_next_pos = np.argwhere(my_next_state[k, i, :, :] == 1)
-        other_pos = np.argwhere(other_state[k, j, :, :] == 1)
-        other_next_pos = np.argwhere(other_next_state[k, j, :, :] == 1)
-        my_drift_pos = np.argwhere(my_state[k, 4, :, :] == 1)
-        my_next_drift_pos = np.argwhere(my_next_state[k, 4, :, :] == 1)
-        other_drift_pos = np.argwhere(other_state[k, 4, :, :] == 1)
-        other_next_drift_pos = np.argwhere(other_next_state[k, 4, :, :] == 1)
-        my_dist = np.sum(np.abs(my_pos - my_drift_pos), axis=1)
-        my_next_dist = np.sum(np.abs(my_next_pos - my_next_drift_pos), axis=1)
-        other_dist = np.sum(np.abs(other_pos - other_drift_pos), axis=1)
-        other_next_dist = np.sum(np.abs(other_next_pos - other_next_drift_pos), axis=1)
-        if my_action[k] == 5:
-            my_value = 2
-        else:
-            my_value = np.sum(np.exp(-my_next_dist)) - np.sum(np.exp(-my_dist))
-        if other_action[k] == 5:
-            other_value = 2
-        else:
-            other_value = np.sum(np.exp(-other_next_dist)) - np.sum(np.exp(-other_dist))
-        factor.append(other_value - my_value)
-
-    return torch.tensor(factor).view(-1, 1).to(device).detach()
 
 def get_loss(batch, id, eps):
     obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad = batch[0], batch[1], batch[2], batch[3], batch[4], batch[5], batch[6], batch[7], batch[8]
@@ -241,7 +163,7 @@ def get_loss(batch, id, eps):
                 imagine_loss_2[j] = torch.mean(torch.abs(j_imagine_obs[j]-obs_j))
                 j_action[j] = other_action_transition[:, j].to(torch.int64)
                 j_action_onehot = F.one_hot(j_action[j], num_classes=env.action_space).squeeze()
-                agents_clone[j].load_state_dict(selfish_agents[i].state_dict())
+                agents_clone[j].load_state_dict(selfish_agents[id].state_dict())
                 # j_imagine_obs[j] = j_imagine_obs[j].view(episode_num, -1)
                 # j_inputs = torch.cat((j_imagine_obs[j], this_action), dim=1)
                 j_q[j] = agents_clone[j](j_imagine_obs[j], last_action)
@@ -266,7 +188,7 @@ def get_loss(batch, id, eps):
 
     return self_loss, symp_loss, imagine_loss
 
-wandb.init(project='Empathy', entity='kfq20', name='infer reward', notes="fix own reward")
+wandb.init(project='Empathy', entity='kfq20', name='dqn vs 2good')
 step_time = 0
 a2c_time = 0
 offline_time = 0
@@ -289,10 +211,10 @@ for ep in range(max_episode):
     log_probs = []
     values = []
     rewards = []
+
     for i in range(4):
         symp_agents[i].init_hidden(1)
     # print('total_time', total_time)
-    step_s = time.time()
     while not all_done:
         actions = []
         avail_actions = []
@@ -304,26 +226,84 @@ for ep in range(max_episode):
         # obs = torch.tensor(obs, dtype=torch.float).to(device)
         # forward_start = time.time()
         for i in range(4):
-            avail_action = env.__actionmask__(i)
-            avail_action_index = np.nonzero(avail_action)[0]
+            if i == 0 or i == 1:
+                avail_action = env.__actionmask__(i)
+                avail_action_index = np.nonzero(avail_action)[0]
+
+                state = torch.tensor(obs[i], dtype=torch.float).to(device)
+                # input = torch.cat((state, last_action))
+                hidden_state = symp_agents[i].hidden.to(device)
+
+                action_prob, state_value, symp_agents[i].hidden = symp_agents[i](state.unsqueeze(0), hidden_state)
+                action_prob[:, avail_action == 0] = -999999
+                action_prob = F.softmax(action_prob, dim=-1)
+                dist = Categorical(action_prob[0])
+                if np.random.random() < epsilon:
+                    action = torch.tensor(np.random.choice(avail_action_index), dtype=torch.int8).to(device)
+                else:
+                    action = dist.sample()
+                actions.append(action.item())
+                avail_actions.append(avail_action)
+                one_log_prob = dist.log_prob(action)
+                all_log_prob.append(one_log_prob)
+                all_value.append(state_value)
             
-            state = torch.tensor(obs[i], dtype=torch.float).to(device)
-            # input = torch.cat((state, last_action))
-            hidden_state = symp_agents[i].hidden.to(device)
+            else: # clean waste
+                avail_action = env.__actionmask__(i)
+                avail_action_index = np.nonzero(avail_action)[0]
+                player_i_pos = np.argwhere(obs[i][i] == 1)[0]
+                if np.sum(obs[i][-2]) == 0:
+                    action = np.random.choice(avail_action_index)
+                else:
+                    waste_pos = np.argwhere(obs[i][-2] == 1)
+                    distances = np.sum(np.abs(waste_pos - player_i_pos), axis=1)
+                    nearest_waste_pos = waste_pos[np.argmin(distances)]
+                    if nearest_waste_pos[0] < player_i_pos[0]:
+                        action = 0  # 上
+                    elif nearest_waste_pos[0] > player_i_pos[0]:
+                        action = 1  # 下
+                    elif nearest_waste_pos[1] < player_i_pos[1]:
+                        action = 2  # 左
+                    elif nearest_waste_pos[1] > player_i_pos[1]:
+                        action = 3  # 右
+                    else:
+                        action = 5  # clean waste
+                if avail_action[action] == 0: # not avail, just stay
+                    action = 4
+                actions.append(action)
+                avail_actions.append(avail_action)
             
-            action_prob, state_value, symp_agents[i].hidden = symp_agents[i](state.unsqueeze(0), hidden_state)
-            action_prob[:, avail_action == 0] = -999999
-            action_prob = F.softmax(action_prob, dim=-1)
-            dist = Categorical(action_prob[0])
-            if np.random.random() < epsilon:
-                action = torch.tensor(np.random.choice(avail_action_index), dtype=torch.int8).to(device)
-            else:
-                action = dist.sample()
-            actions.append(action.item())
-            avail_actions.append(avail_action)
-            one_log_prob = dist.log_prob(action)
-            all_log_prob.append(one_log_prob)
-            all_value.append(state_value)
+            # else: # collect apple
+            #     avail_action = env.__actionmask__(i)
+            #     avail_action_index = np.nonzero(avail_action)[0]
+            #     player_i_pos = np.argwhere(obs[i][i] == 1)[0]
+            #     if np.sum(obs[i][-1]) == 0:
+            #         action = np.random.choice(avail_action_index)
+            #     else:
+            #         waste_pos = np.argwhere(obs[i][-1] == 1)
+            #         distances = np.sum(np.abs(waste_pos - player_i_pos), axis=1)
+            #         nearest_waste_pos = waste_pos[np.argmin(distances)]
+            #         if nearest_waste_pos[0] < player_i_pos[0]:
+            #             action = 0  # 上
+            #         elif nearest_waste_pos[0] > player_i_pos[0]:
+            #             action = 1  # 下
+            #         elif nearest_waste_pos[1] < player_i_pos[1]:
+            #             action = 2  # 左
+            #         elif nearest_waste_pos[1] > player_i_pos[1]:
+            #             action = 3  # 右
+            #         else:
+            #             action = 6  # collect apple
+            #     if avail_action[action] == 0: # not avail, just stay
+            #         action = 4
+            #     actions.append(action)
+            #     avail_actions.append(avail_action)
+
+            # else: # random
+            #     avail_action = env.__actionmask__(i)
+            #     avail_action_index = np.nonzero(avail_action)[0]
+            #     action = np.random.choice(avail_action_index)
+            #     actions.append(action)
+            #     avail_actions.append(avail_action)
 
         # forward_end = time.time()
         # forward_time += forward_end - forward_start
@@ -341,8 +321,7 @@ for ep in range(max_episode):
             avail_next_actions.append(avail_next_action)
         # obs = next_obs
         total_reward += reward
-        if len(obs.shape) != 4:
-            print(1)
+
         for i in range(4):
             other_action = np.ones(4) * -1
             for j in range(4):
@@ -360,7 +339,6 @@ for ep in range(max_episode):
             d[i].append(done[i])
             pad[i].append(0.)
             
-            # buffer[i].add(obs, actions[i], last_action, avail_actions[i], avail_next_actions[i], other_action, reward[i], next_obs, done[i])
         actions = np.array(actions)
         one_hot = np.zeros((len(actions), env.action_space))
         one_hot[np.arange(len(actions)), actions] = 1
@@ -368,33 +346,18 @@ for ep in range(max_episode):
         obs = next_obs     
         all_done = done[-1]
         step += 1
-
-    step_e = time.time()
-    step_time += step_e - step_s
-    # for i in range(step, env.final_time):
-    #     for j in range(4):
-    #         o[j].append(np.zeros((env.player_num, env.channel, window_height, window_width)))
-    #         a[j].append([0,0,0,0])
-    #         r[j].append(0)
-    #         o_next[j].append(np.zeros((env.player_num, env.channel, window_height, window_width)))
-    #         avail_a[j].append(np.zeros(env.action_space))
-    #         avail_a_next[j].append(np.zeros(env.action_space))
-    #         other_a[j].append(np.zeros(4))
-    #         d[j].append(1)
-    #         pad[j].append(1)
-
-    for i in range(4):
-        buffer[i].add(o[i], a[i], avail_a[i], avail_a_next[i], other_a[i], r[i], o_next[i], d[i], pad[i])
+        
+        for i in range(2):
+            buffer[i].add(o[i], a[i], avail_a[i], avail_a_next[i], other_a[i], r[i], o_next[i], d[i], pad[i])
 
     total_actor_loss = 0
     total_critic_loss = 0
 
-    ac_s = time.time()
-    for i in range(4):
+    for i in range(2):
         returns = np.zeros(len(rewards))
         advantages = np.zeros(len(rewards))
         R = 0
-        other_reward = [[] for _ in range(4)]
+        other_reward = [0 for _ in range(4)]
         other_reward_log = [0 for _ in range(4)]
         factor_log = [0 for _ in range(4)]
         j_imagine_obs = [0 for _ in range(4)]
@@ -407,6 +370,7 @@ for ep in range(max_episode):
         other_q_target = [0 for _ in range(4)]
         factor = [0 for _ in range(4)]
         last_factor = [0 for _ in range(4)]
+        total_factor = [0 for _ in range(4)]
         weighted_rewards = [0 for _ in range(env.final_time)]
         with torch.no_grad():
             for t in range(len(rewards)):
@@ -447,58 +411,22 @@ for ep in range(max_episode):
                     if j == i:
                         continue
                     else:
-                        # obs_j = obs_transition[j]
-                        # next_obs_j = next_obs_transition[j]
-                        # state_j = torch.tensor(obs_j, dtype=torch.float).to(device).unsqueeze(0)
-                        # next_state_j = torch.tensor(next_obs_j, dtype=torch.float).to(device).unsqueeze(0)
-                        # action_j = other_action_transition[j]
-                        # reward_j = r[j][t]
-                        obs_j = torch.tensor(o[j][t][j], dtype=torch.float).to(device)
-                        next_obs_j = torch.tensor(o_next[j][t][j], dtype=torch.float).to(device)
-                        j_imagine_obs[j] = agents_imagine[i](obs_j).view(1, env.channel, window_height, window_width)
-                        j_next_imagine_obs[j] = agents_imagine[i](next_obs_j).view(1, env.channel, window_height, window_width)
-                        j_action[j] = other_action_transition[j]
-                        j_action_onehot = F.one_hot(j_action[j], num_classes=env.action_space).squeeze()
-                        agents_clone[j].load_state_dict(selfish_agents[i].state_dict())
-                        # agents_clone[j].hidden = selfish_agents[i].hidden
-                        # j_imagine_obs[j] = j_imagine_obs[j].view(1, -1)
-                        # j_inputs = torch.cat((j_imagine_obs[j], last_action), dim=1)
-                        j_q[j] = agents_clone[j](j_imagine_obs[j], last_action)
-                        max_q_value = torch.max(j_q[j]).item()
-                        min_q_value = torch.min(j_q[j]).item()
-                        j_pi = F.softmax(j_q[j], dim=1)
-                        other_q_value[j] = j_q[j].gather(1, (j_action[j]).view(-1, 1)).detach()
-
-                        agents_target_clone[j].load_state_dict(target_selfish_agents[i].state_dict())
-                        # agents_target_clone[j].hidden = target_selfish_agents[i].hidden
-                        # j_next_imagine_obs[j] = j_next_imagine_obs[j].view(1, -1)
-                        # next_j_inputs = torch.cat((j_next_imagine_obs[j], this_action), dim=1)
-                        next_j_q_value = agents_target_clone[j](j_next_imagine_obs[j], this_action)
-                        other_q_target[j] = next_j_q_value.max(1)[0].view(-1, 1).detach()
-                        xxx = j_q[j] - gamma * other_q_target[j].detach()
-                        # other_reward[j].append(xxx)
-                        max_reward = torch.max(xxx)
-                        min_reward = torch.min(xxx)
-                        real_reward = xxx.gather(1, (j_action[j]).view(-1, 1)).detach()
-
-                        # scaled_value = (element - min_value) * (new_max - new_min) / (max_value - min_value) + new_min
-                        other_reward[j].append((real_reward - min_reward) * (MAX_REWARD - MIN_REWARD) / (max_reward - min_reward) - 1)
-                        # other_reward[j] = reward_j
-
-                        other_reward_log[j] = other_reward[j][-1][0].item()
+                        reward_j = r[j][t]
+                        other_reward[j] = reward_j
 
                         if t == 0:
-                            factor[j] = torch.ones((1, 1)).to(device).detach()
+                            factor[j] = torch.zeros((1, 1)).to(device).detach()
                             last_factor[j] = torch.zeros((1, 1)).to(device).detach()
                             factor_log[j] = 0
                         else:
                             # t_factor = torch.ones((1, 1)).to(device).detach()
                             # t_factor = cleanup_compute_factor(state, state_j, next_state, next_state_j, action_i, action_j, i, j)
-                            t_factor = counterfactual_factor(i, j, selfish_agents, state, last_action, action_i, self_q_value, player_in_view[:, j])
+                            t_factor = counterfactual_factor(i, j, selfish_agents, state, last_action, action_i, self_q_value, player_in_view[:, j], avail_a[j][t])
                             factor[j] = 0.8*last_factor[j] + 0.2*t_factor
                             # factor[j] = t_factor
                             # factor[j] += counterfactual_factor(i, j, selfish_agents, state, last_action, action_i, self_q_value, player_in_view[:, j])
                             factor_log[j] = factor[j][0].item()
+                            total_factor[j] += factor[j][0].item()
                             last_factor[j] = factor[j]
 
                 if i == 0 and ep % 10 == 0:
@@ -512,10 +440,13 @@ for ep in range(max_episode):
                 # weighted_reward = reward_transition
                 for k in range(4):
                     if k != i:
-                        weighted_reward += (1-factor[k])*reward_transition + factor[k] * other_reward[k][-1]
+                        weighted_reward += (1-factor[k])*reward_transition + factor[k] * other_reward[k]
                         # weighted_reward += other_reward[k]
 
                 weighted_rewards[t] = weighted_reward
+
+        if i == 0:
+            wandb.log({'factor_2':total_factor[1]/100, 'factor_3':total_factor[2]/100, 'factor_4':total_factor[3]/100})
 
         for t in reversed(range(len(rewards))):
             R = weighted_rewards[t] + 0.99 * R
@@ -546,19 +477,10 @@ for ep in range(max_episode):
         total_symp_loss = 0
         total_imagine_loss = 0
         # wandb.log({'reward_1':total_reward[0], 'reward_2':total_reward[1], 'reward_3':total_reward[2], 'reward_4':total_reward[3], 'total_reward':sum(total_reward), 'hare_num':total_hunt_hare_num, 'stag_num':total_hunt_stag_num})
-        for i in range(4):
+        for i in range(2):
             obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad = buffer[i].sample(min(buffer[i].size(), batch_size))
             episode_num = obs.shape[0]
-            # symp_agents[i].init_hidden(episode_num)
-            # # target_symp_agents[i].init_hidden(episode_num)
-            # symp_agents[i].hidden = symp_agents[i].hidden.to(device)
-            # target_symp_agents[i].hidden = target_symp_agents[i].hidden.to(device)
             batch = [obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad]
-            # loss_time_start = time.time()
-            # selfish_agents[i].init_hidden(episode_num)
-            # target_selfish_agents[i].init_hidden(episode_num)
-            # selfish_agents[i].hidden = selfish_agents[i].hidden.to(device)
-            # target_selfish_agents[i].hidden = target_selfish_agents[i].hidden.to(device)
             self_loss, symp_loss, imagine_loss = get_loss(batch, i, ep)
             
             self_loss = torch.mean(self_loss)
@@ -592,15 +514,3 @@ for ep in range(max_episode):
                 target_selfish_agents[i].load_state_dict(selfish_agents[i].state_dict())
                 # target_symp_agents[i].load_state_dict(symp_agents[i].state_dict())
         # wandb.log({'self_loss': total_self_loss, 'symp_loss': total_symp_loss, 'imagine_loss':imagine_loss})
-
-
-    # print("eps:", ep, "===================")
-    # print("step time", step_time)
-    # print("a2c time", a2c_time)
-    # print("offline time", offline_time)
-    # print("test time", test_time)
-    # epsilon = epsilon - anneal_epsilon if epsilon > min_epsilon else epsilon
-
-    # ep_end = time.time()
-    # total_time += ep_end - ep_start
-    # print(total_time, loss_time, forward_time)

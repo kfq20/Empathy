@@ -51,7 +51,7 @@ class CleanupEnv():
         self.waste_cost = 1
         self.apple_reward = 10
         self.beam_cost = 1
-        self.waste_spawn_rate = 0.1
+        self.waste_spawn_rate = 0.25
         self.final_time = 300
         self.channel = self.player_num + 3
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
@@ -577,6 +577,8 @@ class StagHuntEnv():
             actions[6] = 1
         return 1 - actions
 
+ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
+
 class ModifiedCleanupEnv():
     def __init__(self):
         self.player_num = 4
@@ -585,14 +587,17 @@ class ModifiedCleanupEnv():
         # self.waste_spawn_prob = 0.5
         # self.apple_respawn_prob = 0.05
         self.window_size = 2
-        self.action_space = 7
+        self.action_space = 8
 
-        self.waste_num_origin = 6
+        self.waste_num_origin = 8
         self.waste_cost = 1
         self.apple_reward = 10
         self.waste_spawn_prob = 0.25
-        self.final_time = 100
+        self.final_time = 200
         self.channel = self.player_num + 3
+        self.be_punished_cost = 50
+        self.punish_cost = 1
+        self.clean_beam_len = 5
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
 
         self.state = None
@@ -602,6 +607,7 @@ class ModifiedCleanupEnv():
             (self.player_num + 3, self.height, self.width), dtype=np.int8)
         self.player_pos = np.zeros((self.player_num, 2), dtype=np.int8)
         self.waste_pos = np.zeros((self.waste_num_origin, 2), dtype=np.int8)
+        self.player_orientation = [ORIENTATIONS["LEFT"] for i in range(self.player_num)]
 
         player_pos= np.random.choice((self.height-4)*self.width, (self.player_num,), replace=False)
         for i in range(self.player_num):
@@ -627,7 +633,7 @@ class ModifiedCleanupEnv():
         self.time += 1
         collect_waste_num = 0
         collect_apple_num = 0
-        # punish_num = 0
+        punish_num = 0
         rewards = [0 for _ in range(4)]
         # np.random.shuffle(self.order)
         for id in range(4):
@@ -642,18 +648,22 @@ class ModifiedCleanupEnv():
                 self.state[id, x, y] = 0
                 self.state[id, x-1, y] = 1
                 self.player_pos[id, 0] -= 1
+                self.player_orientation[id] = ORIENTATIONS["UP"]
             elif action == 1:
                 self.state[id, x, y] = 0
                 self.state[id, x+1, y] = 1
                 self.player_pos[id, 0] += 1
+                self.player_orientation[id] = ORIENTATIONS["DOWN"]
             elif action == 2:
                 self.state[id, x, y] = 0
                 self.state[id, x, y-1] = 1
                 self.player_pos[id, 1] -= 1
+                self.player_orientation[id] = ORIENTATIONS["LEFT"]
             elif action == 3:
                 self.state[id, x, y] = 0
                 self.state[id, x, y+1] = 1
                 self.player_pos[id, 1] += 1
+                self.player_orientation[id] = ORIENTATIONS["RIGHT"]
 
             elif action == 5:
                 # assert self.state[self.player_num + 1, x, y] + self.state[self.player_num + 2, x, y] > 0, 'link ERROR'
@@ -667,6 +677,26 @@ class ModifiedCleanupEnv():
                     self.state[self.player_num + 2, x, y] = 0
                     rewards[id] += self.apple_reward
                     collect_apple_num += 1
+            
+            elif action == 7:
+                rewards[id] -= self.punish_cost
+                target_pos = copy.deepcopy(self.player_pos[id])
+                beam_blocked = False
+                for _ in range(self.clean_beam_len):
+                    target_pos[0] += self.player_orientation[id][0]
+                    target_pos[1] += self.player_orientation[id][1]
+                    if target_pos[0] < 0 or target_pos[0] >= self.height or target_pos[1] < 0 or target_pos[1] >= self.width:
+                        break
+                    for j in range(self.player_num):
+                        if j == id:
+                            continue
+                        if np.array_equal(target_pos, self.player_pos[j]): # punish somebody
+                            punish_num += 1
+                            rewards[j] -= self.be_punished_cost
+                            beam_blocked = True
+                            break
+                    if beam_blocked:
+                        break
                 
         dones = [False for _ in range(4)]
         waste_num = np.sum(self.state[-2, 0 : 2, :])
@@ -696,7 +726,7 @@ class ModifiedCleanupEnv():
             for id in range(4):
                 dones[id] = True
 
-        return self.__obs__(), np.array(rewards), np.array(dones), [collect_waste_num, collect_apple_num]
+        return self.__obs__(), np.array(rewards), np.array(dones), [collect_waste_num, collect_apple_num, punish_num]
 
     def __obs__(self):
         obs = []
@@ -710,7 +740,7 @@ class ModifiedCleanupEnv():
         return np.array(obs)
 
     def __actionmask__(self, id):
-        actions = np.zeros((7,))
+        actions = np.zeros((8,))
         # find current position
         x, y = self.player_pos[id, 0], self.player_pos[id, 1]
         if x == 0 or np.sum(self.state[:self.player_num, x-1, y]) > 0:
