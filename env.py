@@ -224,7 +224,121 @@ class CleanupEnv():
 
         return 1 - actions  # available actions---output 1
 
+class CoinGame():
+    def __init__(self):
+        self.player_num = 2
+        self.height = 5
+        self.width = 5
+        self.my_coin_reward = 1
+        self.other_coin_reward = -2
+        self.end_prob = 0.002
+        self.action_space = 5
+        self.coin_num = 1
+        self.channel = self.player_num + 1
+        self.final_time = 1000
+
+    def reset(self):
+        self.time = 0
+        self.state = np.zeros(
+            (self.player_num + 1, self.height, self.width), dtype=np.int8)
+        self.player_pos = np.zeros((self.player_num, 2), dtype=np.int8)
+        empty_grid = np.where(self.state[-1,:,:]==0)
+        empty_grid_num = len(empty_grid[0])
+        for i in range(self.player_num):
+            grid_index=np.random.randint(0,empty_grid_num)
+            self.player_pos[i]=[empty_grid[0][grid_index],empty_grid[1][grid_index]]
+            self.state[i,empty_grid[0][grid_index],empty_grid[1][grid_index]]=1
+        coin_pos = np.random.choice(empty_grid_num,size=(self.coin_num,),replace=False)
+        for i in range(self.coin_num):
+            coin_type = np.random.choice([1, 2], p=[0.5, 0.5])
+            self.state[-1,empty_grid[0][coin_pos[i]],empty_grid[1][coin_pos[i]]] = coin_type
+
+        obs = []
+        for i in range(self.player_num):
+            o = self.state
+            obs.append(o)
+        return np.array(obs)
     
+    def step(self, action_dict):
+        self.time += 1
+        pick_info = [[0,0], [0,0]]
+        rewards = [0 for _ in range(self.player_num)]
+        pick_coin_players = []
+        for id in range(self.player_num):
+            action = action_dict[id]
+            if self.__actionmask__(id)[action] == 0:
+                action = 4
+            
+            x = self.player_pos[id, 0]
+            y = self.player_pos[id, 1]  
+
+            if action == 0:
+                self.state[id, x, y] = 0
+                self.state[id, x-1, y] = 1
+                self.player_pos[id, 0] -= 1
+            elif action == 1:
+                self.state[id, x, y] = 0
+                self.state[id, x+1, y] = 1
+                self.player_pos[id, 0] += 1
+            elif action == 2:
+                self.state[id, x, y] = 0
+                self.state[id, x, y-1] = 1
+                self.player_pos[id, 1] -= 1
+            elif action == 3:
+                self.state[id, x, y] = 0
+                self.state[id, x, y+1] = 1
+                self.player_pos[id, 1] += 1
+            
+            if self.state[-1, self.player_pos[id, 0], self.player_pos[id, 1]] > 0:
+                pick_coin_players.append(id)
+
+        if len(pick_coin_players) > 0:
+            if len(pick_coin_players) == 1:
+                pick_agent = pick_coin_players[0]
+                coin = self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]]
+                rewards[pick_agent] += self.my_coin_reward
+                rewards[1-pick_agent] += self.other_coin_reward if coin != pick_agent + 1 else 0
+            elif len(pick_coin_players) == 2:
+                pick_agent = np.random.choice(pick_coin_players, p=[0.5, 0.5])
+                coin = self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]]
+                rewards[pick_agent] += self.my_coin_reward
+                rewards[1-pick_agent] += self.other_coin_reward if self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] != pick_agent+1 else 0
+            pick_info[pick_agent][coin-1] = 1
+            self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] = 0
+            new_coin_x = np.random.randint(0, self.height)
+            new_coin_y = np.random.randint(0, self.width)
+            coin_type = np.random.choice([1, 2], p=[0.5, 0.5])
+            self.state[-1, new_coin_x, new_coin_y] = coin_type
+
+        game_end = np.random.choice(2, p=[1-0.002, 0.002]) # end with prob 0.002
+        if (game_end and self.time >= 2) or self.time >= self.final_time:
+            dones = [True for _ in range(self.player_num)]
+        else:
+            dones = [False for _ in range(self.player_num)]
+        
+        return self.__obs__(), np.array(rewards), np.array(dones), pick_info
+    
+    def __obs__(self):
+        obs = []
+        for i in range(self.player_num):
+            o = self.state
+            obs.append(o)
+        return np.array(obs)
+    
+    def __actionmask__(self, id):
+        actions = np.zeros((self.action_space,))
+        # find current position
+        x, y = self.player_pos[id, 0], self.player_pos[id, 1]
+        if x == 0:
+            actions[0] = 1
+        if x == self.height-1:
+            actions[1] = 1
+        if y == 0:
+            actions[2] = 1
+        if y == self.width-1:
+            actions[3] = 1
+        return 1 - actions  # available actions---output 1
+
 class SnowDriftEnv():
     def __init__(self):
         self.player_num = 4
@@ -592,11 +706,11 @@ class ModifiedCleanupEnv():
         self.waste_num_origin = 8
         self.waste_cost = 1
         self.apple_reward = 10
-        self.waste_spawn_prob = 0.25
+        self.waste_spawn_prob = 0.1
         self.final_time = 200
         self.channel = self.player_num + 3
-        self.be_punished_cost = 50
-        self.punish_cost = 1
+        self.be_punished_cost = 0
+        self.punish_cost = 0
         self.clean_beam_len = 5
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
 
@@ -620,7 +734,7 @@ class ModifiedCleanupEnv():
 
         self.time = 0
         obs = []
-        for i in range(4):
+        for i in range(self.player_num):
             o = self.state[:, :, max(0, self.player_pos[i][1]-self.window_size):min(self.player_pos[i][1]+self.window_size+1, self.width)]
             if self.player_pos[i][1] - self.window_size < 0:
                 o = np.pad(o, ((0, 0), (0, 0), (self.window_size-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
@@ -634,9 +748,9 @@ class ModifiedCleanupEnv():
         collect_waste_num = 0
         collect_apple_num = 0
         punish_num = 0
-        rewards = [0 for _ in range(4)]
+        rewards = [0 for _ in range(self.player_num)]
         # np.random.shuffle(self.order)
-        for id in range(4):
+        for id in range(self.player_num):
             action = action_dict[id]
             if self.__actionmask__(id)[action] == 0:
                 action = 4
@@ -698,7 +812,7 @@ class ModifiedCleanupEnv():
                     if beam_blocked:
                         break
                 
-        dones = [False for _ in range(4)]
+        dones = [False for _ in range(self.player_num)]
         waste_num = np.sum(self.state[-2, 0 : 2, :])
         apples_num = np.sum(self.state[-1, self.height - 2 : self.height, :])
         apples_regeneration_rate = 1 - waste_num / self.waste_num_origin
@@ -723,14 +837,14 @@ class ModifiedCleanupEnv():
             self.state[self.player_num + 2, empty_apple_grid[0][new_apple_pos]+self.height-2, empty_apple_grid[1][new_apple_pos]] = 1
 
         if self.time >= self.final_time:
-            for id in range(4):
+            for id in range(self.player_num):
                 dones[id] = True
 
         return self.__obs__(), np.array(rewards), np.array(dones), [collect_waste_num, collect_apple_num, punish_num]
 
     def __obs__(self):
         obs = []
-        for i in range(4):
+        for i in range(self.player_num):
             o = self.state[:, :, max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
             if self.player_pos[i][1] - 2 < 0:
                 o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))

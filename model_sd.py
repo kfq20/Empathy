@@ -72,14 +72,14 @@ class Qself(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
         self.fc = nn.Sequential(
-            nn.Linear(32*2*1+config["player_num"]*config["action_space"], 64),
+            nn.Linear(16*2*2+config["player_num"]*config["action_space"], 64),
             nn.ReLU(),
             nn.Linear(64, config["action_space"])
         )
 
     def forward(self, state, last_action):
         x = self.cnn1(state)
-        x = self.cnn2(x)
+        # x = self.cnn2(x)
         x = x.view(x.size(0), -1)
         x = torch.cat((x, last_action), dim=1)
         x = self.fc(x)
@@ -136,7 +136,7 @@ class ActorCritic(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.fc1 = nn.Linear(32*2*1, 128)
+        self.fc1 = nn.Linear(16*2*2, 128)
         self.rnn = nn.GRUCell(128, 128)
         self.lstm = nn.LSTMCell(128, 128)
         self.actor = nn.Linear(128, config["action_space"])
@@ -147,20 +147,12 @@ class ActorCritic(nn.Module):
 
     def forward(self, x, h_in, c_in):
         x = self.cnn1(x)
-        if torch.isnan(x).int().sum() > 0:
-            print("cnn1!!!!!!!!!!!!!!!!!!!")
-        x = self.cnn2(x)
-        if torch.isnan(x).int().sum() > 0:
-            print("cnn2!!!!!!!!!!!!!!!!")
+        # x = self.cnn2(x)
         x = x.view(x.size(0), -1)
         x = self.relu(self.fc1(x))
-        if torch.isnan(x).int().sum() > 0:
-            print("fc1!!!!!!!!!!!!!!!!")
         hx = h_in.reshape(-1, 128)
         cx = c_in.reshape(-1, 128)
         h, c = self.lstm(x, (hx, cx))
-        if torch.isnan(h).int().sum() > 0:
-            print("lstm!!!!!!!!!!!!!!!!")
         logits = self.actor(h)
         value = self.critic(h)
         return logits, value, h, c
@@ -182,7 +174,7 @@ class ACself(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.fc = nn.Linear(32*2*1+config["player_num"]*config["action_space"], 64)
+        self.fc = nn.Linear(32*1*1+config["player_num"]*config["action_space"], 64)
         self.actor = nn.Linear(64, config["action_space"])
         self.critic = nn.Linear(64, 1)
         self.relu = nn.ReLU()
