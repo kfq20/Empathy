@@ -229,7 +229,7 @@ def get_loss(batch, id, eps):
                 imagine_loss_1[j] = F.cross_entropy(j_pi, j_action_onehot.to(torch.float))
         imagine_loss += (1 - delta) * sum(imagine_loss_1) + delta * sum(imagine_loss_2)
 
-    return self_actor_loss, self_critic_loss, symp_loss, imagine_loss
+    return self_actor_loss, self_critic_loss, _, imagine_loss
 
 if is_wandb:
     wandb.init(project='Empathy', entity='kfq20', name='prosocial coin')

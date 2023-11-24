@@ -2,34 +2,6 @@ import numpy as np
 import copy
 import time
 
-CLEANUP_MAP = [
-    "@@@@@@@@@@@@@@@@@@",
-    "@RRRRRR     BBBBB@",
-    "@HHHHHH      BBBB@",
-    "@RRRRRR     BBBBB@",
-    "@RRRRR  P    BBBB@",
-    "@RRRRR    P BBBBB@",
-    "@HHHHH       BBBB@",
-    "@RRRRR      BBBBB@",
-    "@HHHHHHSSSSSSBBBB@",
-    "@HHHHHHSSSSSSBBBB@",
-    "@RRRRR   P P BBBB@",
-    "@HHHHH   P  BBBBB@",
-    "@RRRRRR    P BBBB@",
-    "@HHHHHH P   BBBBB@",
-    "@RRRRR       BBBB@",
-    "@HHHH    P  BBBBB@",
-    "@RRRRR       BBBB@",
-    "@HHHHH  P P BBBBB@",
-    "@RRRRR       BBBB@",
-    "@HHHH       BBBBB@",
-    "@RRRRR       BBBB@",
-    "@HHHHH      BBBBB@",
-    "@RRRRR       BBBB@",
-    "@HHHH       BBBBB@",
-    "@@@@@@@@@@@@@@@@@@",
-]
-
 ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
 
 class CleanupEnv():
@@ -231,16 +203,19 @@ class CoinGame():
         self.width = 5
         self.my_coin_reward = 1
         self.other_coin_reward = -2
-        self.end_prob = 0.002
-        self.action_space = 5
+        # self.end_prob = 0.002
+        self.action_space = 4
         self.coin_num = 1
-        self.channel = self.player_num + 1
-        self.final_time = 1000
+        self.channel = 2 * self.player_num + 1
+        self.final_time = 300
+        self.obs_height = 5
+        self.obs_width = 5
+        self.name = 'coingame'
 
     def reset(self):
         self.time = 0
         self.state = np.zeros(
-            (self.player_num + 1, self.height, self.width), dtype=np.int8)
+            (self.channel, self.height, self.width), dtype=np.int8)
         self.player_pos = np.zeros((self.player_num, 2), dtype=np.int8)
         empty_grid = np.where(self.state[-1,:,:]==0)
         empty_grid_num = len(empty_grid[0])
@@ -250,14 +225,23 @@ class CoinGame():
             self.state[i,empty_grid[0][grid_index],empty_grid[1][grid_index]]=1
         coin_pos = np.random.choice(empty_grid_num,size=(self.coin_num,),replace=False)
         for i in range(self.coin_num):
-            coin_type = np.random.choice([1, 2], p=[0.5, 0.5])
-            self.state[-1,empty_grid[0][coin_pos[i]],empty_grid[1][coin_pos[i]]] = coin_type
+            coin_type = np.random.choice([0, 1], p=[0.5, 0.5])
+            self.state[self.player_num + coin_type ,empty_grid[0][coin_pos[i]],empty_grid[1][coin_pos[i]]] = 1
 
-        obs = []
-        for i in range(self.player_num):
-            o = self.state
-            obs.append(o)
-        return np.array(obs)
+        return self.__obs__()
+        # obs = []
+        # for i in range(self.player_num):
+        #     o = self.state[:, max(0, self.player_pos[i][0]-2):min(self.player_pos[i][0]+3, 5), max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 5)]
+        #     if self.player_pos[i][0] - 2 < 0:
+        #         o = np.pad(o, ((0, 0), (2-self.player_pos[i][0], 0), (0, 0)), 'constant', constant_values=((-1, -1), (-1, -1), (-1, -1)))
+        #     elif self.player_pos[i][0] + 3 > 5:
+        #         o = np.pad(o, ((0, 0), (0, self.player_pos[i][0]+3-5), (0, 0)), 'constant', constant_values=((-1, -1), (-1, -1), (-1, -1)))
+        #     if self.player_pos[i][1] - 2 < 0:
+        #         o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((-1, -1), (-1, -1), (-1, -1)))
+        #     elif self.player_pos[i][1] + 3 > 5:
+        #         o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]+3-5)), 'constant', constant_values=((-1, -1), (-1, -1), (-1, -1)))
+        #     obs.append(o)
+        # return np.array(obs)
     
     def step(self, action_dict):
         self.time += 1
@@ -289,29 +273,30 @@ class CoinGame():
                 self.state[id, x, y+1] = 1
                 self.player_pos[id, 1] += 1
             
-            if self.state[-1, self.player_pos[id, 0], self.player_pos[id, 1]] > 0:
+            if (self.state[-2, self.player_pos[id, 0], self.player_pos[id, 1]] > 0) or (self.state[-3, self.player_pos[id, 0], self.player_pos[id, 1]] > 0):
                 pick_coin_players.append(id)
 
         if len(pick_coin_players) > 0:
             if len(pick_coin_players) == 1:
                 pick_agent = pick_coin_players[0]
-                coin = self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]]
+                coin = 0 if self.state[self.player_num, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] == 1 else 1
                 rewards[pick_agent] += self.my_coin_reward
-                rewards[1-pick_agent] += self.other_coin_reward if coin != pick_agent + 1 else 0
+                rewards[1-pick_agent] += self.other_coin_reward if coin != pick_agent else 0
             elif len(pick_coin_players) == 2:
                 pick_agent = np.random.choice(pick_coin_players, p=[0.5, 0.5])
-                coin = self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]]
+                coin = 0 if self.state[self.player_num, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] == 1 else 1
                 rewards[pick_agent] += self.my_coin_reward
-                rewards[1-pick_agent] += self.other_coin_reward if self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] != pick_agent+1 else 0
-            pick_info[pick_agent][coin-1] = 1
-            self.state[-1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] = 0
+                rewards[1-pick_agent] += self.other_coin_reward if coin != pick_agent else 0
+            pick_info[pick_agent][coin] = 1
+            self.state[self.player_num, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] = 0
+            self.state[self.player_num + 1, self.player_pos[pick_agent, 0], self.player_pos[pick_agent, 1]] = 0
             new_coin_x = np.random.randint(0, self.height)
             new_coin_y = np.random.randint(0, self.width)
-            coin_type = np.random.choice([1, 2], p=[0.5, 0.5])
-            self.state[-1, new_coin_x, new_coin_y] = coin_type
+            coin_type = np.random.choice([0, 1], p=[0.5, 0.5])
+            self.state[self.player_num + coin_type, new_coin_x, new_coin_y] = 1
 
         game_end = np.random.choice(2, p=[1-0.002, 0.002]) # end with prob 0.002
-        if (game_end and self.time >= 2) or self.time >= self.final_time:
+        if self.time >= self.final_time:
             dones = [True for _ in range(self.player_num)]
         else:
             dones = [False for _ in range(self.player_num)]
@@ -321,7 +306,21 @@ class CoinGame():
     def __obs__(self):
         obs = []
         for i in range(self.player_num):
-            o = self.state
+            i_pos_x = self.player_pos[i][0]
+            i_pos_y = self.player_pos[i][1]
+            o = self.state[:, max(0, i_pos_x-2):min(i_pos_x+3, 5), max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 5)]
+            if i_pos_x - 2 < 0:
+                o = np.pad(o, ((0, 0), (2-i_pos_x, 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, 0:2-i_pos_x, :] = 1
+            elif i_pos_x + 3 > 5:
+                o = np.pad(o, ((0, 0), (0, i_pos_x-2), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, -i_pos_x+7:, :] = 1
+            if i_pos_y - 2 < 0:
+                o = np.pad(o, ((0, 0), (0, 0), (2-i_pos_y, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, 0:2-i_pos_y] = 1
+            elif i_pos_y + 3 > 5:
+                o = np.pad(o, ((0, 0), (0, 0), (0, i_pos_y-2)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, -i_pos_y+7:] = 1
             obs.append(o)
         return np.array(obs)
     
@@ -350,6 +349,9 @@ class SnowDriftEnv():
         self.drift_return = 6
         self.channel = self.player_num + 1
         self.action_space = 6
+        self.obs_height = 5
+        self.obs_width = 5
+        self.name = 'snowdrift'
         
     def reset(self):
         self.state = np.zeros(
@@ -371,7 +373,11 @@ class SnowDriftEnv():
         self.time = 0
         obs = []
         for i in range(4):
-            o = self.state[:, :, max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
+            o = self.state[:, max(0, self.player_pos[i][0]-2):min(self.player_pos[i][0]+3, 8), max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
+            if self.player_pos[i][0] - 2 < 0:
+                o = np.pad(o, ((0, 0), (2-self.player_pos[i][0], 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+            elif self.player_pos[i][0] + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, self.player_pos[i][0]-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             if self.player_pos[i][1] - 2 < 0:
                 o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             elif self.player_pos[i][1] + 3 > 8:
@@ -427,14 +433,18 @@ class SnowDriftEnv():
     def __obs__(self):
         obs = []
         for i in range(4):
-            o = self.state[:, :, max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
+            o = self.state[:, max(0, self.player_pos[i][0]-2):min(self.player_pos[i][0]+3, 8), max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
+            if self.player_pos[i][0] - 2 < 0:
+                o = np.pad(o, ((0, 0), (2-self.player_pos[i][0], 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+            elif self.player_pos[i][0] + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, self.player_pos[i][0]-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             if self.player_pos[i][1] - 2 < 0:
                 o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             elif self.player_pos[i][1] + 3 > 8:
                 o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
             obs.append(o)
         return np.array(obs)
-
+    
     def __actionmask__(self, id):
         actions = np.zeros((6,))
         # find current position
@@ -524,15 +534,18 @@ class StagHuntEnv():
         self.player_num = 4
         self.stag_num = 2
         self.hare_num = 4
+        self.obs_height = 5
+        self.obs_width = 5
         self.height = 8
         self.width = 8
         self.stag_reward = 10
         self.hare_reward = 1
         self.final_time = 30
         self.first_hunt_time = 0
-        self.channel = self.player_num + 2
+        self.channel = self.player_num + 3
         self.prey_moving_mode = 'random'
         self.action_space = 7
+        self.name = 'staghunt'
 
     def reset(self):
         self.state = np.zeros(
@@ -547,25 +560,17 @@ class StagHuntEnv():
 
         stag_hare_pos = np.random.choice(self.height*self.width, (self.stag_num+self.hare_num,), replace=False)
         for i in range(self.stag_num):
-            self.state[-2, int(stag_hare_pos[i]//self.width), int(stag_hare_pos[i]%self.width)] = 1
+            self.state[-3, int(stag_hare_pos[i]//self.width), int(stag_hare_pos[i]%self.width)] = 1
             self.stag_pos[i] = [int(stag_hare_pos[i]//self.width), int(stag_hare_pos[i]%self.width)]
 
         for i in range(self.stag_num, self.stag_num + self.hare_num):
-            self.state[-1, int(stag_hare_pos[i]//self.width), int(stag_hare_pos[i]%self.width)] = 1
+            self.state[-2, int(stag_hare_pos[i]//self.width), int(stag_hare_pos[i]%self.width)] = 1
             self.hare_pos[i-self.stag_num] = [int(stag_hare_pos[i]//self.width), int(stag_hare_pos[i]%self.width)]
 
         self.time = 0
         self.first_hunt_time = 0
         self.terminal = np.zeros(self.player_num, dtype=np.int8)
-        obs = []
-        for i in range(4):
-            o = self.state[:, :, max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
-            if self.player_pos[i][1] - 2 < 0:
-                o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][1] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            obs.append(o)
-        return np.array(obs)
+        return self.__obs__()
     
     def step(self, action_dict):
         self.time += 1
@@ -620,7 +625,7 @@ class StagHuntEnv():
                 self.state[id, zero_hare_pos[0], zero_hare_pos[1]] = 0
                 self.terminal[id] = 1
 
-                rewards[id]+=(self.hare_reward*1.0/len(same_hare_with_zero))
+                rewards[id]+=(self.hare_reward * 1.0 / len(same_hare_with_zero))
                 # if total_strength == 0:
                 #     rewards[self.players[id]
                 #             ] += (self.hare_reward*1.0/len(same_hare_with_zero))
@@ -628,7 +633,7 @@ class StagHuntEnv():
                 #     rewards[self.players[id]
                 #             ] += (self.hare_reward*self.player_strength[id]/total_strength)
                 dones[id] = True
-            self.state[-1, zero_hare_pos[0], zero_hare_pos[1]] = 0
+            self.state[-2, zero_hare_pos[0], zero_hare_pos[1]] = 0
             index = np.where((self.hare_pos == (zero_hare_pos[0], zero_hare_pos[1])).all(axis=1))[0]
             self.hare_pos[index[0]][0] = -1
             self.hare_pos[index[0]][1] = -1
@@ -648,7 +653,7 @@ class StagHuntEnv():
                     self.terminal[id] = 1
                     rewards[id]+=(self.stag_reward*1.0/len(same_stag_with_zero))
                     dones[id] = True
-                self.state[-2, zero_stag_pos[0], zero_stag_pos[1]] = 0
+                self.state[-3, zero_stag_pos[0], zero_stag_pos[1]] = 0
                 index = np.where((self.stag_pos == (zero_stag_pos[0], zero_stag_pos[1])).all(axis=1))[0]
                 self.stag_pos[index[0]][0] = -1
                 self.stag_pos[index[0]][1] = -1
@@ -666,11 +671,21 @@ class StagHuntEnv():
     def __obs__(self):
         obs = []
         for i in range(4):
-            o = self.state[:, :, max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
-            if self.player_pos[i][1] - 2 < 0:
-                o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][1] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+            i_pos_x = self.player_pos[i][0]
+            i_pos_y = self.player_pos[i][1]
+            o = self.state[:, max(0, i_pos_x-2):min(i_pos_x+3, 8), max(0, i_pos_y-2):min(i_pos_y+3, 8)]
+            if i_pos_x - 2 < 0:
+                o = np.pad(o, ((0, 0), (2-i_pos_x, 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, 0:2-i_pos_x, :] = 1
+            elif i_pos_x + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, i_pos_x-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, -i_pos_x+10:, :] = 1
+            if i_pos_y - 2 < 0:
+                o = np.pad(o, ((0, 0), (0, 0), (2-i_pos_y, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, 0:2-i_pos_y] = 1
+            elif i_pos_y + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, 0), (0, i_pos_y-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, -i_pos_y+10:] = 1
             obs.append(o)
         return np.array(obs)
     
@@ -685,9 +700,9 @@ class StagHuntEnv():
             actions[2] = 1
         if y == self.width - 1:
             actions[3] = 1
-        if self.state[-1, x, y] == 0:
+        if self.state[-2, x, y] == 0:
             actions[5] = 1
-        if self.state[-2, x, y] == 0 or np.sum(self.state[:self.player_num, x, y]) <= 1:
+        if self.state[-3, x, y] == 0 or np.sum(self.state[:self.player_num, x, y]) <= 1:
             actions[6] = 1
         return 1 - actions
 

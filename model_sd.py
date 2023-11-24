@@ -24,22 +24,28 @@ class RNN(nn.Module):
         # self.target_hidden = torch.zeros((episode_num, 128))
 
 class Imagine(nn.Module):
-    def __init__(self):
+    def __init__(self, config):
         super(Imagine, self).__init__()
+        self.cnn = nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1)
+        self.preprocess = nn.Linear(config['player_num']+16*config['height']*config['width'], config['channel']*config['height']*config['width'])
         # self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(in_features=1, out_features=6)
-        self.fc2 = nn.Linear(in_features=6, out_features=36)
-        self.fc3 = nn.Linear(in_features=36, out_features=1)
+        self.fc1 = nn.Linear(in_features=config['channel']*config['height']*config['width'], out_features=128)
+        self.fc2 = nn.Linear(in_features=128, out_features=config['channel']*config['height']*config['width'])
+        # self.fc3 = nn.Linear(in_features=36, out_features=1)
         # self.conv1 = nn.Conv2d(in_channels=5, out_channels=16, kernel_size=3, stride=1, padding=1)
         self.relu = nn.ReLU()
         # self.conv2 = nn.Conv2d(in_channels=16, out_channels=5, kernel_size=3, stride=1, padding=1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
-        x = x.view(-1, 1)
+    def forward(self, obs, id):
+        batch_size = obs.shape[0]
+        x = self.cnn(obs).view(batch_size, -1)
+        x = torch.cat((x, id), dim=1)
+        x = self.relu(self.preprocess(x))
+        # x = x.view(-1, 1)
         x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.sigmoid(self.fc3(x))
+        x = self.sigmoid(self.fc2(x))
+        # x = self.sigmoid(self.fc3(x))
         return x
     
 # class Qnet(nn.Module):
@@ -61,53 +67,45 @@ class Imagine(nn.Module):
 class Qself(nn.Module):
     def __init__(self, config):
         super(Qself, self).__init__()
-        self.cnn1 = nn.Sequential(
-            nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1), 
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
-        self.cnn2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
+        self.cnn1 = nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1)
+        self.cnn2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
         self.fc = nn.Sequential(
-            nn.Linear(16*2*2+config["player_num"]*config["action_space"], 64),
+            nn.Linear(32*config['height']*config['width']+config["player_num"]*config["action_space"], 64),
             nn.ReLU(),
             nn.Linear(64, config["action_space"])
         )
 
     def forward(self, state, last_action):
         x = self.cnn1(state)
-        # x = self.cnn2(x)
+        x = self.cnn2(x)
         x = x.view(x.size(0), -1)
         x = torch.cat((x, last_action), dim=1)
         x = self.fc(x)
         return x
     
-class QselfRNN(nn.Module):
-    def __init__(self, config):
-        super(QselfRNN, self).__init__()
-        self.hidden = None
-        self.cnn1 = nn.Sequential(
-            nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1), 
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
-        self.cnn2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
-        self.fc1 = nn.Linear(32*2*1+config["player_num"]*config["action_space"], 128)
-        self.fc2 = nn.Linear(128, config["action_space"])
-        # self.fc = nn.Sequential(
-        #     nn.Linear(32*2*1+config["player_num"]*config["action_space"], 64),
-        #     nn.ReLU(),
-        #     nn.Linear(64, config["action_space"])
-        # )
-        self.rnn = nn.GRUCell(128, 128)
-        self.relu = nn.ReLU()
+# class QselfRNN(nn.Module):
+#     def __init__(self, config):
+#         super(QselfRNN, self).__init__()
+#         self.hidden = None
+#         self.cnn1 = nn.Sequential(
+#             nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1), 
+#             nn.ReLU(),
+#             nn.MaxPool2d(kernel_size=2, stride=2)
+#         )
+#         self.cnn2 = nn.Sequential(
+#             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(),
+#             nn.MaxPool2d(kernel_size=2, stride=2)
+#         )
+#         self.fc1 = nn.Linear(32*2*1+config["player_num"]*config["action_space"], 128)
+#         self.fc2 = nn.Linear(128, config["action_space"])
+#         # self.fc = nn.Sequential(
+#         #     nn.Linear(32*2*1+config["player_num"]*config["action_space"], 64),
+#         #     nn.ReLU(),
+#         #     nn.Linear(64, config["action_space"])
+#         # )
+#         self.rnn = nn.GRUCell(128, 128)
+#         self.relu = nn.ReLU()
 
     def forward(self, state, last_action, hidden_state):
         x = self.cnn1(state)
@@ -128,15 +126,15 @@ class ActorCritic(nn.Module):
         super(ActorCritic, self).__init__()
         self.cnn1 = nn.Sequential(
             nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1), 
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=2, stride=2)
         )
         self.cnn2 = nn.Sequential(
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.fc1 = nn.Linear(16*2*2, 128)
+        self.fc1 = nn.Linear(32*config['height']*config['width'], 128)
         self.rnn = nn.GRUCell(128, 128)
         self.lstm = nn.LSTMCell(128, 128)
         self.actor = nn.Linear(128, config["action_space"])
@@ -147,7 +145,7 @@ class ActorCritic(nn.Module):
 
     def forward(self, x, h_in, c_in):
         x = self.cnn1(x)
-        # x = self.cnn2(x)
+        x = self.cnn2(x)
         x = x.view(x.size(0), -1)
         x = self.relu(self.fc1(x))
         hx = h_in.reshape(-1, 128)
@@ -166,27 +164,29 @@ class ACself(nn.Module):
         super(ACself, self).__init__()
         self.cnn1 = nn.Sequential(
             nn.Conv2d(config["channel"], 16, kernel_size=3, stride=1, padding=1), 
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=2, stride=2)
         )
         self.cnn2 = nn.Sequential(
             nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.fc = nn.Linear(32*1*1+config["player_num"]*config["action_space"], 64)
+        self.fc_c = nn.Linear(32*5*5+config["player_num"]*config["action_space"], 64)
+        self.fc_a = nn.Linear(32*5*5, 64)
         self.actor = nn.Linear(64, config["action_space"])
         self.critic = nn.Linear(64, 1)
         self.relu = nn.ReLU()
 
-    def forward(self, state, last_action):
+    def forward(self, state, this_action):
         x = self.cnn1(state)
         x = self.cnn2(x)
         x = x.view(x.size(0), -1)
-        x = torch.cat((x, last_action), dim=1)
-        x = self.relu(self.fc(x))
-        logits = self.actor(x)
-        value = self.critic(x)
+
+        actor_input = x
+        critic_input = torch.cat((x, this_action), dim=1)
+        logits = self.actor(self.relu(self.fc_a(actor_input)))
+        value = self.critic(self.relu(self.fc_c(critic_input)))
         return logits, value
 
 # class QMix(nn.Module):

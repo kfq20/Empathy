@@ -8,16 +8,16 @@ from torch.distributions import Categorical
 import time
 
 # device = torch.device("cpu")
-device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 
-is_wandb = False
+is_wandb = True
 
 MAX_REWARD = 1
 MIN_REWARD = -1
 
 gamma = 0.99
-max_episode = 100000
+max_episode = 1000000
 anneal_eps = 5000
 batch_size = 128
 # similar_factor = 1
@@ -26,7 +26,7 @@ update_freq = 20
 # target_update = 10
 minimal_size = 150
 total_time = 0
-epsilon = 0.1
+epsilon = 0.01
 # min_epsilon = 0.01
 # anneal_epsilon = (epsilon - min_epsilon) / anneal_eps
 delta = 0
@@ -36,12 +36,12 @@ env_obs_mode = 'complete'
 window_height = 5
 window_width = 5
 
-env = CoinGame()
+env = StagHuntEnv()
 config = {}
 config["channel"] = env.channel
-config["height"] = env.height
+config["height"] = env.obs_height
 # config["width"] = env.width - 3
-config["width"] = env.width
+config["width"] = env.obs_width
 # config["width"] = 15 # cleanup 16*15
 config["player_num"] = env.player_num
 config["action_space"] = env.action_space
@@ -53,7 +53,7 @@ optim_symp = [torch.optim.Adam(symp_agents[i].parameters(), lr=1e-4) for i in ra
 buffer = [ReplayBuffer(capacity=5000, id=i) for i in range(env.player_num)]
 
 if is_wandb:
-    wandb.init(project='Empathy', entity='kfq20', name='prosocial coin')
+    wandb.init(project='Empathy', entity='kfq20', name='prosocial ssh')
 step_time = 0
 a2c_time = 0
 offline_time = 0
@@ -110,7 +110,7 @@ for ep in range(max_episode):
                 c_in = symp_agents[i].cx.to(device)
                 action_prob, state_value, symp_agents[i].hx, symp_agents[i].cx = symp_agents[i](state.unsqueeze(0), h_in, c_in)
                 # print(action_prob)
-                action_prob[:, avail_action == 0] = -999999
+                # action_prob[:, avail_action == 0] = -999999
                 action_prob = F.softmax(action_prob, dim=-1)
 
                 p = torch.sum(action_prob)
@@ -128,21 +128,24 @@ for ep in range(max_episode):
         # forward_end = time.time()
         # forward_time += forward_end - forward_start
         next_obs, reward, done, info = env.step(actions)
-        total_coin_0to0 += info[0][0]
-        total_coin_0to1 += info[0][1]
-        total_coin_1to0 += info[1][0]
-        total_coin_1to1 += info[1][1]
-        # total_sd_num += info
+        if env.name == 'coingame':
+            total_coin_0to0 += info[0][0]
+            total_coin_0to1 += info[0][1]
+            total_coin_1to0 += info[1][0]
+            total_coin_1to1 += info[1][1]
+        elif env.name == 'snowdrift':
+            total_sd_num += info
         # collect_waste_num = info[0]
         # collect_apple_num = info[1]
         # punish_num = info[2]
         # total_collect_waste_num += collect_waste_num
         # total_collect_apple_num += collect_apple_num
         # total_punish_num += punish_num
-        # hare_num = info[0]
-        # stag_num = info[1]
-        # total_hunt_hare_num += hare_num
-        # total_hunt_stag_num += stag_num
+        elif env.name == 'staghunt':
+            hare_num = info[0]
+            stag_num = info[1]
+            total_hunt_hare_num += hare_num
+            total_hunt_stag_num += stag_num
 
         # all_log_prob = torch.cat(all_log_prob, dim=0)
         # log_probs.append(all_log_prob)
@@ -198,18 +201,7 @@ for ep in range(max_episode):
         other_reward = [0 for _ in range(env.player_num)]
         factor = [0 for _ in range(env.player_num)]
         weighted_rewards = [0 for _ in range(env.final_time)]
-        weighted_rewards = torch.tensor(r[0][:this_eps_len], dtype=torch.float) + torch.tensor(r[1][:this_eps_len], dtype=torch.float)
-        # with torch.no_grad():
-        #     reward_batch = r[i][:this_eps_len]
-        #     weighted_rewards = torch.tensor(reward_batch, dtype=torch.float)
-        #     for j in range(env.player_num):
-        #         if j == i:
-        #             continue
-        #         else:
-        #             other_reward[j] = torch.tensor(r[j][:this_eps_len], dtype=torch.float)
-        #             real_factor = torch.ones((this_eps_len, 1, 1))
-        #             total_factor.append(real_factor)
-        #             weighted_rewards += real_factor.squeeze() * other_reward[j]
+        weighted_rewards = torch.tensor(r[0][:this_eps_len], dtype=torch.float) + torch.tensor(r[1][:this_eps_len], dtype=torch.float) + torch.tensor(r[2][:this_eps_len], dtype=torch.float) + torch.tensor(r[3][:this_eps_len], dtype=torch.float)
             
         state = torch.tensor(obs[i], dtype=torch.float).to(device)
         h_in = symp_agents[i].hx.to(device)
@@ -241,19 +233,19 @@ for ep in range(max_episode):
                    'critic loss': total_critic_loss,
                    'reward_1':total_reward[0],
                    'reward_2':total_reward[1],
-                #    'reward_3':total_reward[2],
-                #    'reward_4':total_reward[3],
+                   'reward_3':total_reward[2],
+                   'reward_4':total_reward[3],
                    'total_reward':sum(total_reward),
                 #    'waste_num':total_collect_waste_num,
                 #    'apple_num':total_collect_apple_num,
                 #    'punish_num':total_punish_num,
                 #    'snow_num':total_sd_num,
-                #    'stag num':total_hunt_stag_num,
-                #    'hare num':total_hunt_hare_num,
-                    '0to0 coin':total_coin_0to0,
-                    '0to1 coin':total_coin_0to1,
-                    '1to0 coin':total_coin_1to0,
-                    '1to1 coin':total_coin_1to1,
+                   'stag num':total_hunt_stag_num,
+                   'hare num':total_hunt_hare_num,
+                    # '0to0 coin':total_coin_0to0,
+                    # '0to1 coin':total_coin_0to1,
+                    # '1to0 coin':total_coin_1to0,
+                    # '1to1 coin':total_coin_1to1,
                    'episode':ep,
                 #    'factor_1to2':total_factor[0].mean(), #'factor_1to3':total_factor[0][2]/200, 'factor_1to4':total_factor[0][3]/200,
                 #    'factor_2to1':total_factor[1].mean(), #'factor_2to3':total_factor[1][2]/200, 'factor_2to4':total_factor[1][3]/200,
@@ -261,3 +253,4 @@ for ep in range(max_episode):
                 #    'factor_4to1':total_factor[3][0]/200, 'factor_4to2':total_factor[3][1]/200, 'factor_4to3':total_factor[3][2]/200
                     })
     # if buffer[0].size() > minimal_size and ep % update_freq == 0:
+    # epsilon = epsilon - anneal_epsilon if epsilon > min_epsilon else epsilon
