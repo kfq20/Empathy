@@ -1,8 +1,73 @@
 import numpy as np
 import copy
 import time
+# from meltingpot import substrate
+# import cv2
 
 ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
+
+class meltingpot_cleanup():
+    def __init__(self):
+        self.name = 'clean_up'
+        self.factory = substrate.get_factory(self.name)
+        self.roles = self.factory.default_player_roles()
+        self.env = self.factory.build(self.roles)
+        self.player_num = 7
+        self.action_space = 9
+        self.channel = 3
+        self.obs_height = 11
+        self.obs_width = 11
+        self.name = 'mp_cleanup'
+        self.final_time = 1000
+        self.time = 0
+
+    def downsample_observation(self, array: np.ndarray, scaled) -> np.ndarray:
+        """Downsample image component of the observation.
+        Args:
+          array: RGB array of the observation provided by substrate
+          scaled: Scale factor by which to downsaple the observation
+        Returns:
+          ndarray: downsampled observation  
+        """
+    
+        frame = cv2.resize(
+                array, (array.shape[0]//scaled, array.shape[1]//scaled), interpolation=cv2.INTER_AREA)
+        return frame
+
+    def reset(self):
+        timestep = self.env.reset()
+        downsampled_timestep = timestep._replace(
+        observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
+        } for observation in timestep.observation])
+        obses = []
+        for i in range(self.player_num):
+            obses.append(downsampled_timestep.observation[i]['RGB']) # 88*88*3
+        obses = np.array(obses)
+        obses = np.transpose(obses, (0,3,1,2))
+        return obses
+    
+    def step(self, action):
+        self.time += 1
+        new_timestep = self.env.step(action)
+        downsampled_newtimestep = new_timestep._replace(
+            observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
+            } for observation in new_timestep.observation])
+        new_obses = []
+        for i in range(self.player_num):
+            new_obses.append(downsampled_newtimestep.observation[i]['RGB']) # 88*88*3
+        new_obses = np.array(new_obses)
+        new_obses = np.transpose(new_obses, (0,3,1,2))
+        reward = np.array(downsampled_newtimestep.reward)
+        if self.time >= self.final_time:
+            dones = [True for _ in range(self.player_num)]
+        else:
+            dones = [False for _ in range(self.player_num)]
+        dones = np.array(dones)
+        return new_obses, reward, dones, None
+    
+    def __actionmask__(self, id):
+        actions = np.zeros((self.action_space,))
+        return 1 - actions  # available actions---output 1
 
 class CleanupEnv():
     def __init__(self):
@@ -207,7 +272,7 @@ class CoinGame():
         self.action_space = 4
         self.coin_num = 1
         self.channel = 2 * self.player_num + 1
-        self.final_time = 300
+        self.final_time = 100
         self.obs_height = 5
         self.obs_width = 5
         self.name = 'coingame'
@@ -347,7 +412,7 @@ class SnowDriftEnv():
         self.cost = 4
         self.final_time = 50
         self.drift_return = 6
-        self.channel = self.player_num + 1
+        self.channel = self.player_num + 2
         self.action_space = 6
         self.obs_height = 5
         self.obs_width = 5
@@ -355,7 +420,7 @@ class SnowDriftEnv():
         
     def reset(self):
         self.state = np.zeros(
-            (self.player_num + 1, self.height, self.width), dtype=np.int8)
+            (self.channel, self.height, self.width), dtype=np.int8)
         self.player_pos = np.zeros((self.player_num, 2), dtype=np.int8)
         self.waste_pos = np.zeros((self.drift_num, 2), dtype=np.int8)
 
@@ -368,22 +433,11 @@ class SnowDriftEnv():
             self.state[i,empty_grid[0][grid_index],empty_grid[1][grid_index]]=1
         drift_pos=np.random.choice(empty_grid_num,size=(self.drift_num,),replace=False)
         for i in range(self.drift_num):
-            self.state[-1,empty_grid[0][drift_pos[i]],empty_grid[1][drift_pos[i]]]=1
+            self.state[-2,empty_grid[0][drift_pos[i]],empty_grid[1][drift_pos[i]]]=1
         
         self.time = 0
-        obs = []
-        for i in range(4):
-            o = self.state[:, max(0, self.player_pos[i][0]-2):min(self.player_pos[i][0]+3, 8), max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
-            if self.player_pos[i][0] - 2 < 0:
-                o = np.pad(o, ((0, 0), (2-self.player_pos[i][0], 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][0] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, self.player_pos[i][0]-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            if self.player_pos[i][1] - 2 < 0:
-                o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][1] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            obs.append(o)
-        return np.array(obs)
+
+        return self.__obs__()
 
     def step(self, action_dict):
         self.time += 1
@@ -416,7 +470,7 @@ class SnowDriftEnv():
                 self.player_pos[id, 1] += 1
             elif action == 5:
                 picked_sd += 1
-                self.state[-1, x, y] = 0
+                self.state[-2, x, y] = 0
                 for j in range(4):
                     if j == id:
                         rewards[j] += self.drift_return - self.cost
@@ -424,7 +478,7 @@ class SnowDriftEnv():
                         rewards[j] += self.drift_return
 
         dones = [False for _ in range(4)]
-        if self.time >= self.final_time or np.sum(self.state[-1, :, :]) == 0: # time limit, and exist snowdrift
+        if self.time >= self.final_time or np.sum(self.state[-2, :, :]) == 0: # time limit, and exist snowdrift
             for id in range(4):
                 dones[id] = True
         
@@ -433,15 +487,21 @@ class SnowDriftEnv():
     def __obs__(self):
         obs = []
         for i in range(4):
-            o = self.state[:, max(0, self.player_pos[i][0]-2):min(self.player_pos[i][0]+3, 8), max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
-            if self.player_pos[i][0] - 2 < 0:
-                o = np.pad(o, ((0, 0), (2-self.player_pos[i][0], 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][0] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, self.player_pos[i][0]-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            if self.player_pos[i][1] - 2 < 0:
-                o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][1] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+            i_pos_x = self.player_pos[i][0]
+            i_pos_y = self.player_pos[i][1]
+            o = self.state[:, max(0, i_pos_x-2):min(i_pos_x+3, 8), max(0, i_pos_y-2):min(i_pos_y+3, 8)]
+            if i_pos_x - 2 < 0:
+                o = np.pad(o, ((0, 0), (2-i_pos_x, 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, 0:2-i_pos_x, :] = 1
+            elif i_pos_x + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, i_pos_x-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, -i_pos_x+10:, :] = 1
+            if i_pos_y - 2 < 0:
+                o = np.pad(o, ((0, 0), (0, 0), (2-i_pos_y, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, 0:2-i_pos_y] = 1
+            elif i_pos_y + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, 0), (0, i_pos_y-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, -i_pos_y+10:] = 1
             obs.append(o)
         return np.array(obs)
     
@@ -457,7 +517,7 @@ class SnowDriftEnv():
             actions[2] = 1
         if y == self.width-1 or np.sum(self.state[:self.player_num, x, y+1]) > 0:
             actions[3] = 1
-        if self.state[-1, x, y] == 0:  # not allowed to link/unlink
+        if self.state[-2, x, y] == 0:  # not allowed to link/unlink
             actions[5] = 1
 
         return 1 - actions  # available actions---output 1
@@ -544,7 +604,7 @@ class StagHuntEnv():
         self.first_hunt_time = 0
         self.channel = self.player_num + 3
         self.prey_moving_mode = 'random'
-        self.action_space = 7
+        self.action_space = 6
         self.name = 'staghunt'
 
     def reset(self):
@@ -609,7 +669,9 @@ class StagHuntEnv():
 
             elif action == 5:
                 hunt_hare_players.append(id)
-            elif action == 6:
+            # elif action == 6:
+            # #     hunt_stag_players.append(id)
+            elif self.state[-3, self.player_pos[id, 0], self.player_pos[id, 1]] > 0:
                 hunt_stag_players.append(id)
 
         while len(hunt_hare_players) != 0:
@@ -690,7 +752,7 @@ class StagHuntEnv():
         return np.array(obs)
     
     def __actionmask__(self, id):
-        actions = np.zeros((7,))
+        actions = np.zeros((self.action_space,))
         x, y = self.player_pos[id, 0], self.player_pos[id, 1]
         if x == 0:
             actions[0] = 1
@@ -702,8 +764,8 @@ class StagHuntEnv():
             actions[3] = 1
         if self.state[-2, x, y] == 0:
             actions[5] = 1
-        if self.state[-3, x, y] == 0 or np.sum(self.state[:self.player_num, x, y]) <= 1:
-            actions[6] = 1
+        # if self.state[-3, x, y] == 0 or np.sum(self.state[:self.player_num, x, y]) <= 1:
+        #     actions[6] = 1
         return 1 - actions
 
 ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
@@ -716,17 +778,19 @@ class ModifiedCleanupEnv():
         # self.waste_spawn_prob = 0.5
         # self.apple_respawn_prob = 0.05
         self.window_size = 2
-        self.action_space = 8
-
+        self.action_space = 7
+        self.obs_height = 5
+        self.obs_width = 5
         self.waste_num_origin = 8
-        self.waste_cost = 1
-        self.apple_reward = 10
-        self.waste_spawn_prob = 0.1
-        self.final_time = 200
+        self.waste_cost = 0
+        self.apple_reward = 1
+        self.waste_spawn_prob = 0.4
+        self.final_time = 100
         self.channel = self.player_num + 3
         self.be_punished_cost = 0
         self.punish_cost = 0
         self.clean_beam_len = 5
+        self.name = 'cleanup'
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
 
         self.state = None
@@ -745,22 +809,14 @@ class ModifiedCleanupEnv():
         
         waste_pos= np.random.choice(2*self.width, (self.waste_num_origin,), replace=False)
         for i in range(self.waste_num_origin):
-            self.state[self.player_num + 1, int(waste_pos[i]//self.width), int(waste_pos[i]%self.width)] = 1
+            self.state[self.player_num, int(waste_pos[i]//self.width), int(waste_pos[i]%self.width)] = 1
 
         self.time = 0
-        obs = []
-        for i in range(self.player_num):
-            o = self.state[:, :, max(0, self.player_pos[i][1]-self.window_size):min(self.player_pos[i][1]+self.window_size+1, self.width)]
-            if self.player_pos[i][1] - self.window_size < 0:
-                o = np.pad(o, ((0, 0), (0, 0), (self.window_size-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][1] + self.window_size + 1 > self.width:
-                o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-(self.width-self.window_size-1))), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            obs.append(o)
-        return np.array(obs)
+        return self.__obs__()
 
     def step(self, action_dict):
         self.time += 1
-        collect_waste_num = 0
+        collect_waste_num = [0 for _ in range(self.player_num)]
         collect_apple_num = 0
         punish_num = 0
         rewards = [0 for _ in range(self.player_num)]
@@ -797,39 +853,39 @@ class ModifiedCleanupEnv():
             elif action == 5:
                 # assert self.state[self.player_num + 1, x, y] + self.state[self.player_num + 2, x, y] > 0, 'link ERROR'
                 if x < 2:
-                    self.state[self.player_num + 1, x, y] = 0
-                    rewards[id] -= self.waste_cost
-                    collect_waste_num += 1
+                    self.state[self.player_num, x, y] = 0
+                    # rewards[id] -= self.waste_cost
+                    collect_waste_num[id] += 1
 
             elif action == 6:
                 if x >= self.height - 2:
-                    self.state[self.player_num + 2, x, y] = 0
+                    self.state[self.player_num + 1, x, y] = 0
                     rewards[id] += self.apple_reward
                     collect_apple_num += 1
             
-            elif action == 7:
-                rewards[id] -= self.punish_cost
-                target_pos = copy.deepcopy(self.player_pos[id])
-                beam_blocked = False
-                for _ in range(self.clean_beam_len):
-                    target_pos[0] += self.player_orientation[id][0]
-                    target_pos[1] += self.player_orientation[id][1]
-                    if target_pos[0] < 0 or target_pos[0] >= self.height or target_pos[1] < 0 or target_pos[1] >= self.width:
-                        break
-                    for j in range(self.player_num):
-                        if j == id:
-                            continue
-                        if np.array_equal(target_pos, self.player_pos[j]): # punish somebody
-                            punish_num += 1
-                            rewards[j] -= self.be_punished_cost
-                            beam_blocked = True
-                            break
-                    if beam_blocked:
-                        break
+            # elif action == 7:
+            #     rewards[id] -= self.punish_cost
+            #     target_pos = copy.deepcopy(self.player_pos[id])
+            #     beam_blocked = False
+            #     for _ in range(self.clean_beam_len):
+            #         target_pos[0] += self.player_orientation[id][0]
+            #         target_pos[1] += self.player_orientation[id][1]
+            #         if target_pos[0] < 0 or target_pos[0] >= self.height or target_pos[1] < 0 or target_pos[1] >= self.width:
+            #             break
+            #         for j in range(self.player_num):
+            #             if j == id:
+            #                 continue
+            #             if np.array_equal(target_pos, self.player_pos[j]): # punish somebody
+            #                 punish_num += 1
+            #                 rewards[j] -= self.be_punished_cost
+            #                 beam_blocked = True
+            #                 break
+            #         if beam_blocked:
+            #             break
                 
         dones = [False for _ in range(self.player_num)]
-        waste_num = np.sum(self.state[-2, 0 : 2, :])
-        apples_num = np.sum(self.state[-1, self.height - 2 : self.height, :])
+        waste_num = np.sum(self.state[-3, 0 : 2, :])
+        apples_num = np.sum(self.state[-2, self.height - 2 : self.height, :])
         apples_regeneration_rate = 1 - waste_num / self.waste_num_origin
         apples_regeneration_distribution = [1 - apples_regeneration_rate, apples_regeneration_rate]
         waste_regeneration_distribution = [1 - self.waste_spawn_prob, self.waste_spawn_prob]
@@ -837,39 +893,49 @@ class ModifiedCleanupEnv():
         is_new_apple = np.random.choice(2, size=(1,), p=apples_regeneration_distribution)
         if is_new_waste[0] == 1 and waste_num < self.waste_num_origin:
             empty_waste_grid = np.where(
-                self.state[self.player_num + 1, 0 : 2, :] == 0
+                self.state[self.player_num, 0 : 2, :] == 0
             )
             empty_waste_grid_num = len(empty_waste_grid[0])
             new_waste_pos = np.random.choice(empty_waste_grid_num, 1, replace=False)
-            self.state[self.player_num + 1, empty_waste_grid[0][new_waste_pos], empty_waste_grid[1][new_waste_pos]] = 1
+            self.state[self.player_num, empty_waste_grid[0][new_waste_pos], empty_waste_grid[1][new_waste_pos]] = 1
         
         if is_new_apple[0]==1 and apples_num < 2 * self.width:
             empty_apple_grid = np.where(
-                self.state[self.player_num + 2, self.height - 2 : self.height, :] == 0
+                self.state[self.player_num + 1, self.height - 2 : self.height, :] == 0
             )
             empty_apple_grid_num = len(empty_apple_grid[0])
             new_apple_pos = np.random.choice(empty_apple_grid_num, 1, replace=False)
-            self.state[self.player_num + 2, empty_apple_grid[0][new_apple_pos]+self.height-2, empty_apple_grid[1][new_apple_pos]] = 1
+            self.state[self.player_num + 1, empty_apple_grid[0][new_apple_pos]+self.height-2, empty_apple_grid[1][new_apple_pos]] = 1
 
         if self.time >= self.final_time:
             for id in range(self.player_num):
                 dones[id] = True
 
-        return self.__obs__(), np.array(rewards), np.array(dones), [collect_waste_num, collect_apple_num, punish_num]
+        return self.__obs__(), np.array(rewards), np.array(dones), [np.array(collect_waste_num), collect_apple_num, punish_num]
 
     def __obs__(self):
         obs = []
-        for i in range(self.player_num):
-            o = self.state[:, :, max(0, self.player_pos[i][1]-2):min(self.player_pos[i][1]+3, 8)]
-            if self.player_pos[i][1] - 2 < 0:
-                o = np.pad(o, ((0, 0), (0, 0), (2-self.player_pos[i][1], 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-            elif self.player_pos[i][1] + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, 0), (0, self.player_pos[i][1]-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+        for i in range(4):
+            i_pos_x = self.player_pos[i][0]
+            i_pos_y = self.player_pos[i][1]
+            o = self.state[:, max(0, i_pos_x-2):min(i_pos_x+3, 8), max(0, i_pos_y-2):min(i_pos_y+3, 8)]
+            if i_pos_x - 2 < 0:
+                o = np.pad(o, ((0, 0), (2-i_pos_x, 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, 0:2-i_pos_x, :] = 1
+            elif i_pos_x + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, i_pos_x-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, -i_pos_x+10:, :] = 1
+            if i_pos_y - 2 < 0:
+                o = np.pad(o, ((0, 0), (0, 0), (2-i_pos_y, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, 0:2-i_pos_y] = 1
+            elif i_pos_y + 3 > 8:
+                o = np.pad(o, ((0, 0), (0, 0), (0, i_pos_y-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, -i_pos_y+10:] = 1
             obs.append(o)
         return np.array(obs)
 
     def __actionmask__(self, id):
-        actions = np.zeros((8,))
+        actions = np.zeros((self.action_space,))
         # find current position
         x, y = self.player_pos[id, 0], self.player_pos[id, 1]
         if x == 0 or np.sum(self.state[:self.player_num, x-1, y]) > 0:
@@ -880,8 +946,45 @@ class ModifiedCleanupEnv():
             actions[2] = 1
         if y == self.width-1 or np.sum(self.state[:self.player_num, x, y+1]) > 0:
             actions[3] = 1
-        if self.state[-2, x, y] == 0:  # not allowed to link/unlink
+        if self.state[-3, x, y] == 0:  # not allowed to link/unlink
             actions[5] = 1
-        if self.state[-1, x, y] == 0:
+        if self.state[-2, x, y] == 0:
             actions[6] = 1
         return 1 - actions  # available actions---output 1
+
+class IPD():
+    def __init__(self):
+        self.player_num = 2
+        self.CC = 4 # r=3
+        self.DC = 5 # t=4
+        self.CD = 0 # s=0
+        self.DD = 1 # p=2
+        self.final_time = 100
+        self.name = 'IPD'
+
+    def reset(self):
+        self.time = 0
+        self.state = np.zeros(4)
+        self.state[0] = 1 # start with CC
+        return self.state
+    
+    def step(self, action_dict):
+        self.time += 1
+        rewards = [0,0]
+        if action_dict[0]==0 and action_dict[1]==0:
+            rewards = [self.CC, self.CC]
+            self.state = np.array([1,0,0,0])
+        elif action_dict[0]==0 and action_dict[1]==1:
+            rewards = [self.CD, self.DC]
+            self.state = np.array([0,1,0,0])
+        elif action_dict[0]==1 and action_dict[1]==0:
+            rewards = [self.DC, self.CD]
+            self.state = np.array([0,0,1,0])
+        elif action_dict[0]==1 and action_dict[1]==1:
+            rewards = [self.DD, self.DD]
+            self.state = np.array([0,0,0,1])
+        if self.time >= self.final_time:
+            dones = [True, True]
+        else:
+            dones = [False, False]
+        return self.state, np.array(rewards), np.array(dones), None

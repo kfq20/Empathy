@@ -189,6 +189,49 @@ class ACself(nn.Module):
         value = self.critic(self.relu(self.fc_c(critic_input)))
         return logits, value
 
+class IPDModel(nn.Module):
+    def __init__(self):
+        super(IPDModel, self).__init__()
+        self.fc1 = nn.Linear(4, 32)
+        self.fc2 = nn.Linear(32, 64)
+        self.actor = nn.Linear(64, 2)
+        self.critic = nn.Linear(64, 1)
+        self.relu = nn.ReLU()
+
+    def forward(self, state):
+        x = self.fc(state)
+        logits = self.actor(self.relu(x))
+        value = self.critic(self.relu(x))
+        return logits, value
+    
+class IPDActor(nn.Module):
+    def __init__(self):
+        super(IPDActor, self).__init__()
+        self.fc1 = nn.Linear(4, 32)
+        self.fc2 = nn.Linear(32, 64)
+        self.relu = nn.ReLU()
+        self.actor = nn.Linear(64, 2)
+
+    def forward(self, state):
+        x = self.fc1(state)
+        x = self.fc2(self.relu(x))
+        logits = self.actor(self.relu(x))
+        return logits
+    
+class IPDCritic(nn.Module):
+    def __init__(self):
+        super(IPDCritic, self).__init__()
+        self.fc1 = nn.Linear(4, 32)
+        self.fc2 = nn.Linear(32, 64)
+        self.relu = nn.ReLU()
+        self.critic = nn.Linear(64, 1)
+
+    def forward(self, state):
+        x = self.fc1(state)
+        x = self.fc2(self.relu(x))
+        value = self.critic(self.relu(x))
+        return value
+
 # class QMix(nn.Module):
 #     def __init__(self):
 #         super(QMix, self).__init__()
