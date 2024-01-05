@@ -6,8 +6,9 @@ import torch.nn.functional as F
 import wandb
 from torch.distributions import Categorical
 import time
+# from meltingpot import substrate
 
-device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
 
 is_wandb = True
@@ -16,26 +17,26 @@ MAX_REWARD = 1
 MIN_REWARD = -1
 
 gamma = 0.98
-max_episode = 500000
-anneal_eps = 1000
-batch_size = 128
-update_freq = 5
-self_update_freq = 20
-# target_update = 10
-minimal_size = 150
+max_episode = 100000
+anneal_eps = 2000
+batch_size = 1000
+update_freq = 1
+self_update_freq = 30
+minimal_size = 1000
 total_time = 0
 epsilon = 0.5
-min_epsilon = 0.01
+min_epsilon = 0.05
 anneal_epsilon = (epsilon - min_epsilon) / anneal_eps
-delta = 0
-beta = 1
+delta = 0.1
 count = 0
 env_obs_mode = 'complete'
-gifting_mode = 'empathy'
+gifting_mode = ['empathy', 'empathy', 'empathy', 'empathy']
 window_height = 5
 window_width = 5
+env_parallel_num = 20
 
-env = ModifiedCleanupEnv()
+env_parallel = [SnowDriftEnv() for _ in range(env_parallel_num)]
+env = SnowDriftEnv()
 config = {}
 config["channel"] = env.channel
 config["height"] = env.obs_height
@@ -70,9 +71,7 @@ def other_obs_process(obs, id):
         else:
             j_observable = np.any(obs[:, id, j, :, :] == 1, axis=(1, 2))
             observable[:, j] = j_observable
-    other_obs = np.zeros((batch_size, env.player_num, env.channel, env.obs_height, env.obs_width))
     for i in range(env.player_num):
-        i_obs = []
         if i == id:
             total_other_obs.append(np.zeros((batch_size, env.channel, env.obs_height, env.obs_width)))
             total_condition.append(np.zeros(batch_size))
@@ -81,29 +80,8 @@ def other_obs_process(obs, id):
             condition = observable[:, i] == 1
             condition = condition.astype(float)
             total_condition.append(condition)
-            for j in range(batch_size):
-                if condition[j]:
-                    pos = np.where(obs[j, id, i] > 0)
-                    x, y = pos[0][0], pos[1][0]
-                    other_obs = obs[j, id, :, max(0, x-2):min(x+3, 5), max(0, y-2):min(y+2+1, 2*2+1)]
-                    if x - 2 < 0:
-                        other_obs = np.pad(other_obs, ((0, 0), (2-x, 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-                        other_obs[-1, 0:2-x, :] = 1
-                    elif x + 3 > 5:
-                        other_obs = np.pad(other_obs, ((0, 0), (0, x-2), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-                        other_obs[-1, -x+7:, :] = 1
-                    if y - 2 < 0:
-                        other_obs = np.pad(other_obs, ((0, 0), (0, 0), (2-y, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-                        other_obs[-1, :, 0:2-y] = 1
-                    elif y + 3 > 5:
-                        other_obs = np.pad(other_obs, ((0, 0), (0, 0), (0, y-2)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-                        other_obs[-1, :, -y+7:] = 1
-                    i_obs.append(other_obs)
-                else:
-                    i_obs.append(np.zeros((env.channel, env.obs_height, env.obs_width)))
-            total_other_obs.append(np.array(i_obs))
             
-    return np.array(total_other_obs), np.array(total_condition)
+    return obs, np.array(total_condition)
 
 def counterfactual_factor(my_id, other_id, selfish_agents, imagine_nn, state, this_action, real_q_value):
     batch_size = real_q_value.shape[0]
@@ -117,7 +95,8 @@ def counterfactual_factor(my_id, other_id, selfish_agents, imagine_nn, state, th
     imagine_state = imagine_nn(state, other_id_batch).view(batch_size, env.channel, env.obs_height, env.obs_width)
     this_action_logits, _ = selfish_agents[my_id](imagine_state, this_action)
     real_action = this_action[:, env.action_space*other_id:env.action_space*(other_id+1)]
-    this_action_prob = F.softmax(this_action_logits, dim=1)
+    # this_action_prob = F.softmax(this_action_logits, dim=1)
+    this_action_prob = F.softmax(torch.rand(env.final_time*env_parallel_num, env.action_space), dim=1).to(device)
     cf_baseline = torch.sum(this_action_prob*real_action, dim=1, keepdim=True) * real_q_value
     for i in range(env.action_space-1):
         cur_try_action_pos = virtual_action[:, i, :] # 32*2
@@ -127,6 +106,7 @@ def counterfactual_factor(my_id, other_id, selfish_agents, imagine_nn, state, th
         cf_action_prob = torch.sum(this_action_prob*other_action, dim=1, keepdim=True)
         # cf_input = torch.cat((state, last_action), dim=1)
         _, cf_q_value = selfish_agents[my_id](state, this_action)
+        
         cf_baseline += cf_action_prob * cf_q_value
         counterfactual_result.append(cf_q_value)
         # log.append(cf_q_value.item())
@@ -143,25 +123,29 @@ def counterfactual_factor(my_id, other_id, selfish_agents, imagine_nn, state, th
     return factor.detach().cpu()
 
 def get_loss(batch, id, eps):
-    obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad = batch[0], batch[1], batch[2], batch[3], batch[4], batch[5], batch[6], batch[7], batch[8]
+    obs, action, other_action, reward, next_obs, done = batch[0], batch[1], batch[2], batch[3], batch[4], batch[5]
+    # batch_size = min(obs.shape[0], batch_size)
     episode_num = obs.shape[0]
     self_actor_loss = 0
     self_critic_loss = 0
     symp_loss = 0
     imagine_loss = 0
-
+    random_log = random.randint(0, env.final_time-1)
+    time1 = 0
+    time2 = 0
     # random_start = random.randint(0, env.final_time-51)
     for transition_idx in range(env.final_time):
-        obs_transition, next_obs_transition, action_transition, avail_action_transition = obs[:, transition_idx, :, :, :, :], next_obs[:, transition_idx, :, :, :, :], action[:, transition_idx, :], avail_action[:, transition_idx]
+        st1 = time.time()
+        obs_transition, next_obs_transition, action_transition = obs[:, transition_idx, :, :, :, :], next_obs[:, transition_idx, :, :, :, :], action[:, transition_idx, :]
         # avail_next_action_transition = avail_next_action[:, transition_idx]
-        other_obs_transition, observable = other_obs_process(obs_transition, id)
-        other_next_obs_transition, next_observable = other_obs_process(next_obs_transition, id)
-        other_obs_transition = torch.tensor(other_obs_transition, dtype=torch.float).to(device)
-        other_next_obs_transition = torch.tensor(other_next_obs_transition, dtype=torch.float).to(device)
+        _, observable = other_obs_process(obs_transition, id)
+        _, _ = other_obs_process(next_obs_transition, id)
+        et1 = time.time()
+        # other_obs_transition = torch.tensor(other_obs_transition, dtype=torch.float).to(device)
+        # other_next_obs_transition = torch.tensor(other_next_obs_transition, dtype=torch.float).to(device)
         observable = torch.tensor(observable, dtype=torch.float).to(device)
         reward_transition = torch.tensor(reward[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
         done_transition = torch.tensor(done[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
-        pad_transition = torch.tensor(pad[:, transition_idx], dtype=torch.float).view(-1, 1).to(device)
         other_action_transition = torch.tensor(other_action[:, transition_idx, :], dtype=torch.float).to(device)
         obs_i = obs_transition[:, id, :, :, :]
         done_player = np.zeros((batch_size, env.player_num))
@@ -194,8 +178,7 @@ def get_loss(batch, id, eps):
         # next_action = torch.tensor(next_action, dtype=torch.float).to(device).view(episode_num, env.player_num*6)
         this_action = torch.tensor(this_action, dtype=torch.float).to(device).view(episode_num, -1)
         next_action = torch.tensor(next_action, dtype=torch.float).to(device).view(episode_num, -1)
-
-
+        
         # selfish_inputs = torch.cat((state, last_action), dim=1)
         # selfish_next_inputs = torch.cat((next_state, this_action), dim=1)
         logits, value = selfish_agents[id](state, this_action)
@@ -211,7 +194,8 @@ def get_loss(batch, id, eps):
         self_actor_loss += torch.mean(-log_probs * td_delta.detach())
         self_critic_loss += torch.mean(
             F.mse_loss(value, td_target.detach()))
-
+        
+        time1 += et1-st1
         # factor = [0 for _ in range(env.player_num)]
         imagine_loss_1 = [0 for _ in range(env.player_num)]
         imagine_loss_2 = [0 for _ in range(env.player_num)]
@@ -220,35 +204,37 @@ def get_loss(batch, id, eps):
         j_action = [0 for _ in range(env.player_num)]
         j_q = [0 for _ in range(env.player_num)]
         agents_clone = [ACself(config).to(device) for _ in range(env.player_num)]
-
+        st2 = time.time()
         for j in range(env.player_num):
             if j == id:
                 continue
             else:
-                obs_j = other_obs_transition[j]
-                next_obs_j = other_next_obs_transition[j]
-                # obs_j = torch.tensor(obs_transition[:, j, :, :, :], dtype=torch.float).to(device)
-                # next_obs_j = torch.tensor(next_obs_transition[:, j, :, :, :], dtype=torch.float).to(device)
                 j_id = F.one_hot(torch.tensor(j), num_classes=env.player_num)
-                j_id_batch = torch.stack([j_id]*obs_j.shape[0]).to(device)
-                j_imagine_obs[j] = agents_imagine[id](obs_j, j_id_batch).view(batch_size, env.channel, window_height, window_width)
-                j_next_imagine_obs[j] = agents_imagine[id](next_obs_j, j_id_batch).view(batch_size, env.channel, window_height, window_width)
-                imagine_loss_2[j] = torch.mean(torch.sum(torch.abs((j_imagine_obs[j]-obs_j)), dim=(1,2,3), keepdim=True)*observable[j].unsqueeze(0))
+                j_id_batch = torch.stack([j_id]*state.shape[0]).to(device)
+                j_imagine_obs[j] = agents_imagine[id](state, j_id_batch).view(batch_size, env.channel, window_height, window_width)
+                j_next_imagine_obs[j] = agents_imagine[id](next_state, j_id_batch).view(batch_size, env.channel, window_height, window_width)
+                imagine_loss_2[j] = torch.mean(torch.sum(torch.abs((j_imagine_obs[j]-state)), dim=(1,2,3), keepdim=True)*observable[j].unsqueeze(0))
                 j_action[j] = (other_action_transition[:, j]*observable[j]).to(torch.int64)
                 j_action_onehot = F.one_hot(j_action[j], num_classes=env.action_space).squeeze()
                 agents_clone[j].load_state_dict(selfish_agents[i].state_dict())
-                # j_imagine_obs[j] = j_imagine_obs[j].view(episode_num, -1)
-                # j_inputs = torch.cat((j_imagine_obs[j], this_action), dim=1)
                 j_q[j], _ = agents_clone[j](j_imagine_obs[j], this_action)
                 j_pi = F.softmax(j_q[j], dim=1)
                 if j_pi[observable[j] == 1].shape[0] > 0:
                     imagine_loss_1[j] = F.cross_entropy(j_pi[observable[j] == 1], j_action_onehot.to(torch.float)[observable[j] == 1])
+                if transition_idx == random_log and eps % 200 == 0:
+                    print(f"agent_{id} imagine agent_{j}")
+                    print("imagine obs",j_imagine_obs[j])
+                    print("real obs", state)
+        et2 = time.time()
+        time2 += et2-st2
+        # print('t1',time1)
+        # print('t2', time2)
         imagine_loss += (1 - delta) * sum(imagine_loss_1) + delta * sum(imagine_loss_2)
 
     return self_actor_loss, self_critic_loss, symp_loss, imagine_loss
 
 if is_wandb:
-    wandb.init(project='Empathy', entity='kfq20', name='2empathy vs 2A2C cleanup_0.4')
+    wandb.init(project='Empathy', entity='kfq20', name='empathy_parallel_no_img snowdrift')
 step_time = 0
 a2c_time = 0
 offline_time = 0
@@ -268,6 +254,8 @@ def evaluate():
     total_collect_apple_num = 0
     total_collect_waste_num = np.zeros(env.player_num)
     last_action = np.zeros((env.player_num, env.action_space))
+    log_probs = [[] for i in range(env.player_num)]
+    values = [[] for i in range(env.player_num)]
     for i in range(env.player_num):
         symp_agents[i].init_hidden(1)
     # print('total_time', total_time)
@@ -290,7 +278,11 @@ def evaluate():
 
                 dist = Categorical(action_prob[0])
                 action = torch.argmax(action_prob)
+                one_log_prob = dist.log_prob(action)
                 actions.append(action.item())
+                avail_actions.append(avail_action)
+                log_probs[i].append(one_log_prob.unsqueeze(0))
+                values[i].append(state_value)
 
         next_obs, reward, done, info = env.step(actions)
         if env.name == 'coingame':
@@ -325,7 +317,7 @@ def evaluate():
                     'eval reward2':total_reward[1],
                     'eval reward3':total_reward[2],
                     'eval reward4':total_reward[3], 
-                    'eval total r':sum(total_reward), 
+                    'eval total r':np.sum(total_reward), 
                     'eval hare num':total_hunt_hare_num,
                     'eval stag num':total_hunt_stag_num,
                     })
@@ -350,7 +342,7 @@ def evaluate():
                     'eval 2to1 coin':total_coin_2to1,
                     'eval 2to2 coin':total_coin_2to2,
                     })
-        elif env.game == 'snowdrift':
+        elif env.name == 'snowdrift':
             wandb.log({'eval reward1':total_reward[0], 
                     'eval reward2':total_reward[1],
                     'eval reward3':total_reward[2],
@@ -367,8 +359,12 @@ update_info = [{
 for ep in range(max_episode):
     if (ep+1) % 50 == 0:
         evaluate()
-    o, a, other_a, r, o_next, avail_a, avail_a_next, pad, d = [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)]
-    obs = env.reset()
+    o, a, other_a, r, o_next, d = [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)], [[] for _ in range(env.player_num)]
+    obs_par = []
+    for i in range(env_parallel_num):
+        obs = env_parallel[i].reset()
+        obs_par.append(obs)
+    obs_par = np.array(obs_par)
     all_done = False
     total_reward = np.zeros(env.player_num)
     total_coin_1to1 = 0
@@ -387,7 +383,7 @@ for ep in range(max_episode):
     values = [[] for i in range(env.player_num)]
     rewards = []
     for i in range(env.player_num):
-        symp_agents[i].init_hidden(1)
+        symp_agents[i].init_hidden(env_parallel_num)
     # print('total_time', total_time)
     step_s = time.time()
     while not all_done:
@@ -397,282 +393,179 @@ for ep in range(max_episode):
         probs = []
         all_log_prob = [[] for i in range(env.player_num)]
         all_value = []
-        last_action = torch.flatten(torch.tensor(last_action, dtype=torch.float)).to(device)
+        # last_action = torch.flatten(torch.tensor(last_action, dtype=torch.float)).to(device)
         # obs = torch.tensor(obs, dtype=torch.float).to(device)
         # forward_start = time.time()
         for i in range(env.player_num):
-            if i == 0 or i == 1 or i == 2 or i == 3:
-                avail_action = env.__actionmask__(i)
-                avail_action_index = np.nonzero(avail_action)[0]
-
-                state = torch.tensor(obs[i], dtype=torch.float).to(device)
-                # input = torch.cat((state, last_action))
-                h_in = symp_agents[i].hx.to(device)
-                c_in = symp_agents[i].cx.to(device)
-                action_prob, state_value, symp_agents[i].hx, symp_agents[i].cx = symp_agents[i](state.unsqueeze(0), h_in, c_in)
-                # print(action_prob)
-                # action_prob[:, avail_action == 0] = -999999
-                action_prob = F.softmax(action_prob, dim=-1)
-
-                p = torch.sum(action_prob)
-                dist = Categorical(action_prob[0])
-                if np.random.random() < epsilon:
-                    action = torch.tensor(np.random.choice(avail_action_index), dtype=torch.int8).to(device)
-                else:
-                    action = dist.sample()
-                actions.append(action.item())
-                avail_actions.append(avail_action)
-                one_log_prob = dist.log_prob(action)
-                log_probs[i].append(one_log_prob.unsqueeze(0))
-                values[i].append(state_value)
-
-            # elif i == 2: # clean waste
-            #     avail_action = env.__actionmask__(i)
-            #     avail_action_index = np.nonzero(avail_action)[0]
-            #     player_i_pos = np.argwhere(obs[i][i] == 1)[0]
-            #     if np.sum(obs[i][-2]) == 0:
-            #         action = np.random.choice(avail_action_index)
-            #     else:
-            #         waste_pos = np.argwhere(obs[i][-2] == 1)
-            #         distances = np.sum(np.abs(waste_pos - player_i_pos), axis=1)
-            #         nearest_waste_pos = waste_pos[np.argmin(distances)]
-            #         if nearest_waste_pos[0] < player_i_pos[0]:
-            #             action = 0  # 上
-            #         elif nearest_waste_pos[0] > player_i_pos[0]:
-            #             action = 1  # 下
-            #         elif nearest_waste_pos[1] < player_i_pos[1]:
-            #             action = 2  # 左
-            #         elif nearest_waste_pos[1] > player_i_pos[1]:
-            #             action = 3  # 右
-            #         else:
-            #             action = 5  # clean waste
-            #     if avail_action[action] == 0: # not avail, just stay
-            #         action = 4
-            #     actions.append(action)
-            #     avail_actions.append(avail_action)
-
-            # else: # collect apple
-            #     avail_action = env.__actionmask__(i)
-            #     avail_action_index = np.nonzero(avail_action)[0]
-            #     player_i_pos = np.argwhere(obs[i][i] == 1)[0]
-            #     if np.sum(obs[i][-1]) == 0:
-            #         action = np.random.choice(avail_action_index)
-            #     else:
-            #         waste_pos = np.argwhere(obs[i][-1] == 1)
-            #         distances = np.sum(np.abs(waste_pos - player_i_pos), axis=1)
-            #         nearest_waste_pos = waste_pos[np.argmin(distances)]
-            #         if nearest_waste_pos[0] < player_i_pos[0]:
-            #             action = 0  # 上
-            #         elif nearest_waste_pos[0] > player_i_pos[0]:
-            #             action = 1  # 下
-            #         elif nearest_waste_pos[1] < player_i_pos[1]:
-            #             action = 2  # 左
-            #         elif nearest_waste_pos[1] > player_i_pos[1]:
-            #             action = 3  # 右
-
-            #         else:
-            #             action = 6  # collect apple
-            #     if avail_action[action] == 0: # not avail, just stay
-            #         action = 4
-            #     actions.append(action)
-            #     avail_actions.append(avail_action)
-
-            # log_probs[i].append()
-
-        # forward_end = time.time()
-        # forward_time += forward_end - forward_start
-        next_obs, reward, done, info = env.step(actions)
-        if env.name == 'coingame':
-            total_coin_1to1 += info[0][0]
-            total_coin_1to2 += info[0][1]
-            total_coin_2to1 += info[1][0]
-            total_coin_2to2 += info[1][1]
-        elif env.name == 'snowdrift':
-            total_sd_num += info
-        elif env.name == 'staghunt':
-            hare_num = info[0]
-            stag_num = info[1]
-            total_hunt_hare_num += hare_num
-            total_hunt_stag_num += stag_num
-        elif env.name == 'cleanup':
-            total_collect_waste_num += info[0]
-            total_collect_apple_num += info[1]
-        # collect_waste_num = info[0]
-        # collect_apple_num = info[1]
-        # punish_num = info[2]
-        # total_collect_waste_num += collect_waste_num
-        # total_collect_apple_num += collect_apple_num
-        # total_punish_num += punish_num
-
-        # all_log_prob = torch.cat(all_log_prob, dim=0)
-        # log_probs.append(all_log_prob)
-        # values.append(all_value)
-        rewards.append(reward)
+            # if i == 0 or i == 1 or i == 2 or i == 3:
+            state = torch.tensor(obs_par[:, i], dtype=torch.float).to(device)
+            # input = torch.cat((state, last_action))
+            h_in = symp_agents[i].hx.to(device)
+            c_in = symp_agents[i].cx.to(device)
+            action_prob, state_value, symp_agents[i].hx, symp_agents[i].cx = symp_agents[i](state, h_in, c_in)
+            # print(action_prob)
+            # action_prob[:, avail_action == 0] = -999999
+            action_prob = F.softmax(action_prob, dim=-1)
+            p = torch.sum(action_prob)
+            dist = Categorical(action_prob)
+            if np.random.random() < epsilon:
+                action = torch.tensor(np.array([np.random.choice(env.action_space) for _ in range(env_parallel_num)]), dtype=torch.int8).to(device)
+            else:
+                action = dist.sample()
+            actions.append(action.cpu().detach().numpy())
+            one_log_prob = dist.log_prob(action)
+            log_probs[i].append(one_log_prob)
+            values[i].append(state_value)
+        actions = np.array(actions)
+        next_obs_par, reward_par, done_par = [], [], []
+        for env_index in range(env_parallel_num):
+            next_obs, reward, done, info = env_parallel[env_index].step(actions[:, env_index])
+            next_obs_par.append(next_obs)
+            reward_par.append(reward)
+            done_par.append(done)
+            if env.name == 'coingame':
+                total_coin_1to1 += info[0][0]
+                total_coin_1to2 += info[0][1]
+                total_coin_2to1 += info[1][0]
+                total_coin_2to2 += info[1][1]
+            elif env.name == 'snowdrift':
+                total_sd_num += info
+            elif env.name == 'staghunt':
+                hare_num = info[0]
+                stag_num = info[1]
+                total_hunt_hare_num += hare_num
+                total_hunt_stag_num += stag_num
+            elif env.name == 'cleanup':
+                total_collect_waste_num += info[0]
+                total_collect_apple_num += info[1]
+            total_reward += reward
+        
+        next_obs_par, reward_par, done_par = np.array(next_obs_par), np.array(reward_par), np.array(done_par)
+        # for env_i in range(env_parallel_num):
         for i in range(env.player_num):
-            avail_next_action = env.__actionmask__(i)
-            avail_next_actions.append(avail_next_action)
-        # obs = next_obs
-        total_reward += reward
-
-        for i in range(env.player_num):
-            other_action = np.ones(env.player_num) * -1
+            other_action = np.ones((env_parallel_num, env.player_num)) * -1
             for j in range(env.player_num):
                 if j == i:
                     continue
                 else:
-                    other_action[j] = actions[j]
-            o[i].append(obs)
+                    other_action[:, j] = actions[j, :]
+            o[i].append(obs_par)
             a[i].append(actions)
-            r[i].append(reward[i])
-            o_next[i].append(next_obs)
-            avail_a[i].append(avail_actions[i])
-            avail_a_next[i].append(avail_next_actions[i])
+            r[i].append(reward_par[:, i])
+            o_next[i].append(next_obs_par)
             other_a[i].append(other_action)
-            d[i].append(done[i])
-            pad[i].append(0.)
-            
-            # buffer[i].add(obs, actions[i], last_action, avail_actions[i], avail_next_actions[i], other_action, reward[i], next_obs, done[i])
-        actions = np.array(actions)
-        one_hot = np.zeros((len(actions), env.action_space))
-        one_hot[np.arange(len(actions)), actions] = 1
-        last_action = one_hot
-        obs = next_obs     
+            d[i].append(done_par[:, i])
+
+        obs_par = next_obs_par    
         all_done = done[-1]
         step += 1
 
     this_eps_len = step
     print("eps:", ep, "len:", this_eps_len)
 
-    for i in range(step, env.final_time):
-        for j in range(env.player_num):
-            o[j].append(np.zeros((env.player_num, env.channel, window_height, window_width)))
-            a[j].append([0 for _ in range(env.player_num)])
-            r[j].append(0)
-            o_next[j].append(np.zeros((env.player_num, env.channel, window_height, window_width)))
-            avail_a[j].append(np.zeros(env.action_space))
-            avail_a_next[j].append(np.zeros(env.action_space))
-            other_a[j].append(np.zeros(env.player_num))
-            d[j].append(1)
-            pad[j].append(1)
-
     for i in range(env.player_num):
-        buffer[i].add(o[i], a[i], avail_a[i], avail_a_next[i], other_a[i], r[i], o_next[i], d[i], pad[i])
+        o[i] = np.array(o[i])
+        a[i] = np.array(a[i])
+        other_a[i] = np.array(other_a[i])
+        r[i] = np.array(r[i])
+        o_next[i] = np.array(o_next[i])
+        d[i] = np.array(d[i])
+        for env_i in range(env_parallel_num):
+            buffer[i].add(o[i][:, env_i], a[i][:, :, env_i], other_a[i][:, env_i], r[i][:, env_i], o_next[i][:, env_i], d[i][:, env_i])
 
     total_actor_loss = 0
     total_critic_loss = 0
-    # log_probs = torch.cat(log_probs, dim=0)
-    # values = torch.cat(values, dim=0)
-    ac_s = time.time()
-    # total_factor = [[0 for _ in range(env.player_num)] for _ in range(env.player_num)]
-    all_weighted_rewards = []
-    total_factor = [[] for _ in range(env.player_num)]
-    other_reward_log = [0 for _ in range(env.player_num)]
-    total_infer_reward_gap = [0 for _ in range(env.player_num)]
     total_give_factor = []
     for i in range(env.player_num):
-        if i == 0 or i == 1:
-            factor = [0 for _ in range(env.player_num)]
-            give_factor = [0 for _ in range(env.player_num)]
-            if gifting_mode == 'random':
-                give_factor = torch.rand(this_eps_len, env.player_num)
-                give_factor = give_factor / give_factor.sum(dim=1, keepdim=True)
-                give_factor = torch.transpose(give_factor, 0, 1)
-            with torch.no_grad():
-                last_action = np.zeros((1, env.player_num, env.action_space))
-                x = np.array(a[i][:this_eps_len-1])
-                y = np.array(a[i][:this_eps_len])
-                z = np.concatenate((np.array(a[i][1:this_eps_len]), np.zeros((1, env.player_num))), axis=0).astype(np.int64)
-                one_hot_array = np.zeros((x.shape[0], x.shape[1], env.action_space))
-                one_hot_array[np.arange(x.shape[0])[:, np.newaxis], np.arange(x.shape[1]), x] = 1
-                one_hot_array_y = np.zeros((y.shape[0], y.shape[1], env.action_space))
-                one_hot_array_y[np.arange(y.shape[0])[:, np.newaxis], np.arange(y.shape[1]), y] = 1
-                one_hot_array_z = np.zeros((z.shape[0], z.shape[1], env.action_space))
-                one_hot_array_z[np.arange(z.shape[0])[:, np.newaxis], np.arange(z.shape[1]), z] = 1
-                this_action = one_hot_array_y
-                last_action = one_hot_array
-                next_action = one_hot_array_z
+        factor = [0 for _ in range(env.player_num)]
+        last_factor = [0 for _ in range(env.player_num)]
+        weighted_rewards = [0 for _ in range(env.final_time)]
+        give_factor = [0 for _ in range(env.player_num)]
+        if gifting_mode[i] == 'random':
+            give_factor = torch.rand(this_eps_len, env.player_num)
+            give_factor = give_factor / give_factor.sum(dim=1, keepdim=True)
+            give_factor = torch.transpose(give_factor, 0, 1)
+        with torch.no_grad():
+            y = a[i][:this_eps_len, :, :]
+            y = np.transpose(y, (0, 2, 1))
+            one_hot_array_y = np.eye(env.action_space)[y]
+            this_action = one_hot_array_y
 
-                obs_batch = np.array(o[i][:this_eps_len])
-                next_obs_batch = np.array(o_next[i][:this_eps_len])
-                other_obs, observable = other_obs_process(obs_batch, i)
-                next_other_obs, next_observable = other_obs_process(next_obs_batch, i)
+            obs_batch = o[i][:this_eps_len]
 
-                i_obs_batch = obs_batch[:, i, :,:,:]
-                state = torch.tensor(i_obs_batch, dtype=torch.float).to(device)
-                this_action = torch.tensor(this_action, dtype=torch.float).to(device).view(this_action.shape[0], -1)
+            i_obs_batch = obs_batch[:, :, i, :,:,:]
+            state = torch.tensor(i_obs_batch, dtype=torch.float).to(device).view(i_obs_batch.shape[0]*i_obs_batch.shape[1], i_obs_batch.shape[2], i_obs_batch.shape[3], i_obs_batch.shape[4])
+            this_action = torch.tensor(this_action, dtype=torch.float).to(device).view(this_action.shape[0]*this_action.shape[1], -1)
 
-                _, self_q_value = selfish_agents[i](state, this_action)
-                weighted_rewards = 0
+            _, self_q_value = selfish_agents[i](state, this_action)
+            weighted_rewards = 0
+            if gifting_mode[i] == 'selfish':
+                give_factor = []
+                for j in range(env.player_num):
+                    if j != i:
+                        give_factor.append(torch.zeros(1, this_eps_len*env_parallel_num))
+                    else:
+                        give_factor.append(torch.ones(1, this_eps_len*env_parallel_num))
+                give_factor = torch.cat(give_factor, dim=0)
+                total_give_factor.append(give_factor)
+            else:
                 for j in range(env.player_num):
                     if j == i:
-                        if gifting_mode == 'prosocial':
-                            prosocial_factor = torch.tensor(1/env.player_num, dtype=torch.float).expand(this_eps_len, 1)
+                        if gifting_mode[i] == 'prosocial':
+                            prosocial_factor = torch.tensor(1/env.player_num, dtype=torch.float).expand(this_eps_len*env_parallel_num, 1)
                             give_factor[j] = prosocial_factor
                         continue
                     else:
-                        one_factor = torch.ones((this_eps_len, 1))
-                        if gifting_mode == 'empathy':
+                        one_factor = torch.ones((this_eps_len*env_parallel_num, 1))
+                        if gifting_mode[i] == 'empathy':
                             origin_factor = counterfactual_factor(i, j, selfish_agents, agents_imagine[i], state, this_action, self_q_value) # len(eps)-1
                             give_factor[j] = torch.clamp(origin_factor, min=0) / (env.player_num - 1) # cf factor
                             if isinstance(give_factor[i], torch.Tensor):
                                 give_factor[i] += torch.clamp((one_factor - origin_factor), max=1) / (env.player_num - 1)
                             else:
                                 give_factor[i] = torch.clamp((one_factor - origin_factor), max=1) / (env.player_num - 1)
-                        elif gifting_mode == 'prosocial':
-                            prosocial_factor = torch.tensor(1/env.player_num, dtype=torch.float).expand(this_eps_len, 1)
+                        elif gifting_mode[i] == 'prosocial':
+                            prosocial_factor = torch.tensor(1/env.player_num, dtype=torch.float).expand(this_eps_len*env_parallel_num, 1)
                             give_factor[j] = prosocial_factor
-                        # total_factor[i].append(origin_factor)
-            total_give_factor.append(give_factor)
-        else: # selfish A2C
-            give_factor = []
-            for j in range(env.player_num):
-                if j != i:
-                    give_factor.append(torch.zeros(1, this_eps_len))
-                else:
-                    give_factor.append(torch.ones(1, this_eps_len))
-            give_factor = torch.cat(give_factor, dim=0)
-            # give_factor_1 = torch.zeros(1, this_eps_len)
-            # give_factor_2 = torch.ones(1, this_eps_len)
-            # give_factor = torch.cat((give_factor_1, give_factor_2), dim=0)
-            total_give_factor.append(give_factor)
+                total_give_factor.append(give_factor)
 
     for i in range(env.player_num):
         i_log_probs = torch.cat(log_probs[i], dim=0)
         i_values = torch.cat(values[i], dim=0).squeeze()
         weighted_rewards = 0
         for j in range(env.player_num):
-            j_reward = torch.tensor(r[j][:this_eps_len], dtype=torch.float)
-            weighted_rewards += total_give_factor[j][i].squeeze() * j_reward
-        
-        # if i == 0:
-        #     for j in range(env.player_num):
-        #         j_reward = torch.tensor(r[j][:this_eps_len], dtype=torch.float)
-        #         weighted_rewards += total_give_factor[j][i].squeeze() * j_reward
-        # else:
-        #     j_reward = torch.tensor(r[i][:this_eps_len], dtype=torch.float)
-        #     weighted_rewards = j_reward
+            j_reward = torch.tensor(r[j][:this_eps_len], dtype=torch.float).view(this_eps_len*env_parallel_num, -1)
+            weighted_rewards += total_give_factor[j][i].squeeze() * j_reward.squeeze()
         # compute returns
-        state = torch.tensor(obs[i], dtype=torch.float).to(device)
+        state = torch.tensor(obs_par[:, i], dtype=torch.float).to(device)
         h_in = symp_agents[i].hx.to(device)
         c_in = symp_agents[i].cx.to(device)
-        _, final_value, _, _ = symp_agents[i](state.unsqueeze(0), h_in, c_in)
-        R = final_value
+        _, final_value, _, _ = symp_agents[i](state, h_in, c_in)
+        R = final_value.squeeze()
         returns = []
+        weighted_rewards = weighted_rewards.view(this_eps_len, env_parallel_num).to(device)
+        d[i] = torch.tensor(d[i], dtype=torch.float).to(device)
         for step in reversed(range(this_eps_len)):
-            R = weighted_rewards[step] + gamma * R * (1-d[i][step])
+            a = 1-d[i][step, :]
+            b = R
+            c = weighted_rewards[step, :]
+            R = weighted_rewards[step, :] + gamma * R * (1-d[i][step, :])
             returns.insert(0, R)
 
         returns = torch.cat(returns).squeeze().detach()
-        advantage = returns - i_values[:this_eps_len]
-        update_info[i]['log_probs'].append(i_log_probs[:this_eps_len])
+        if this_eps_len > 1:
+            advantage = returns - i_values
+        else:
+            advantage = (returns - i_values).unsqueeze(0)
+        update_info[i]['log_probs'].append(i_log_probs)
         update_info[i]['advantage'].append(advantage)
 
-    total_self_loss = 0
-    total_imagine_loss = 0
+    
     if (ep+1) % update_freq == 0:
         for i in range(env.player_num):
             log_probs = torch.cat(update_info[i]['log_probs'])
             advantages = torch.cat(update_info[i]['advantage'])
+            # test = -log_probs.squeeze() * advantages.detach()
             actor_loss = torch.mean(-log_probs * advantages.detach())
             critic_loss = advantages.pow(2).mean()
             total_actor_loss += actor_loss
@@ -684,24 +577,22 @@ for ep in range(max_episode):
             optim_symp[i].step()
             update_info[i]['log_probs'] = []
             update_info[i]['advantage'] = []
-
+    total_self_loss = 0
+    total_imagine_loss = 0
+    total_symp_loss = 0
     if buffer[0].size() > minimal_size and ep % self_update_freq == 0:
-        # print(total_reward)
-        total_symp_loss = 0
         for i in range(env.player_num):
-            if i == 0 or i == 1: # empathy need update self network
-                obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad = buffer[i].sample(min(buffer[i].size(), batch_size))
+            if gifting_mode[i] == 'empathy':
+                obs, action, other_action, reward, next_obs, done = buffer[i].sample(min(buffer[i].size(), batch_size))
                 episode_num = obs.shape[0]
-                batch = [obs, action, avail_action, avail_next_action, other_action, reward, next_obs, done, pad]
+                batch = [obs, action, other_action, reward, next_obs, done]
                 self_actor_loss, self_critic_loss, symp_loss, imagine_loss = get_loss(batch, i, ep)
-        
                 self_loss = self_actor_loss + 0.5*self_critic_loss
-                # symp_loss = torch.mean(symp_loss)
                 optim_selfish[i].zero_grad()
                 self_loss.backward()
                 torch.nn.utils.clip_grad_norm_(selfish_agents[i].parameters(), max_norm=1.0)
                 optim_selfish[i].step()
-                total_self_loss += self_loss.item()
+                total_self_loss += self_loss
 
                 optim_imagine[i].zero_grad()
                 imagine_loss.backward()
@@ -709,35 +600,91 @@ for ep in range(max_episode):
                 total_imagine_loss += imagine_loss
 
     if is_wandb:
-        wandb.log({'actor loss': total_actor_loss,
-                   'critic loss': total_critic_loss,
-                   'self_loss':total_self_loss,
-                   'image_loss':total_imagine_loss,
-                   'reward_1':total_reward[0],
+        if env.name == 'cleanup':
+            wandb.log({
+                    'reward_1':total_reward[0]/env_parallel_num,
+                   'reward_2':total_reward[1]/env_parallel_num,
+                   'reward_3':total_reward[2]/env_parallel_num,
+                   'reward_4':total_reward[3]/env_parallel_num,
+                   'total_reward':sum(total_reward/env_parallel_num),
+                   'waste_num_1':total_collect_waste_num[0]/env_parallel_num,
+                   'waste_num_2':total_collect_waste_num[1]/env_parallel_num,
+                   'waste_num_3':total_collect_waste_num[2]/env_parallel_num,
+                   'waste_num_4':total_collect_waste_num[3]/env_parallel_num,
+                   'apple_num':total_collect_apple_num/env_parallel_num,
+                   'actor loss': total_actor_loss,
+                    'critic loss': total_critic_loss,
+                    'self_loss':total_self_loss,
+                    'image_loss':total_imagine_loss,
+                    'factor_1to2':total_give_factor[0][1].mean(), 'factor_1to3':total_give_factor[0][2].mean(), 'factor_1to4':total_give_factor[0][3].mean(),
+                    'factor_2to1':total_give_factor[1][0].mean(), 'factor_2to3':total_give_factor[1][2].mean(), 'factor_2to4':total_give_factor[1][3].mean(),
+                    'factor_3to1':total_give_factor[2][0].mean(), 'factor_3to2':total_give_factor[2][1].mean(), 'factor_3to4':total_give_factor[2][3].mean(),
+                    'factor_4to1':total_give_factor[3][0].mean(), 'factor_4to2':total_give_factor[3][1].mean(), 'factor_4to3':total_give_factor[3][2].mean()
+                    })
+        elif env.name == 'staghunt':
+            wandb.log({
+                    'reward_1':total_reward[0],
                    'reward_2':total_reward[1],
                    'reward_3':total_reward[2],
                    'reward_4':total_reward[3],
                    'total_reward':sum(total_reward),
-                   'waste_num_1':total_collect_waste_num[0],
-                   'waste_num_2':total_collect_waste_num[1],
-                   'waste_num_3':total_collect_waste_num[2],
-                   'waste_num_4':total_collect_waste_num[3],
-                   'apple_num':total_collect_apple_num,
-                #    'punish_num':total_punish_num,
-                #    'snow_num':total_sd_num,
-                #    'stag num':total_hunt_stag_num,
-                #    'hare num':total_hunt_hare_num,
-                    # '1to2 infer reward gap':total_infer_reward_gap[0],
-                    # '2to1 infer reward gap':total_infer_reward_gap[1],
-                    # '1to1 coin':total_coin_1to1,
-                    # '1to2 coin':total_coin_1to2,
-                    # '2to1 coin':total_coin_2to1,
-                    # '2to2 coin':total_coin_2to2,
-                   'episode':ep,
+                   'stag num':total_hunt_stag_num,
+                   'hare num':total_hunt_hare_num,
+                   'actor loss': total_actor_loss,
+                    'critic loss': total_critic_loss,
+                    # 'self_loss':total_self_loss,
+                    # 'image_loss':total_imagine_loss,
+                    # 'factor_1to2':total_give_factor[0][1].mean(), 'factor_1to3':total_give_factor[0][2].mean(), 'factor_1to4':total_give_factor[0][3].mean(),
+                    # 'factor_2to1':total_give_factor[1][0].mean(), 'factor_2to3':total_give_factor[1][2].mean(), 'factor_2to4':total_give_factor[1][3].mean(),
+                    # 'factor_3to1':total_give_factor[2][0].mean(), 'factor_3to2':total_give_factor[2][1].mean(), 'factor_3to4':total_give_factor[2][3].mean(),
+                    # 'factor_4to1':total_give_factor[3][0].mean(), 'factor_4to2':total_give_factor[3][1].mean(), 'factor_4to3':total_give_factor[3][2].mean()
+                    })
+        elif env.name == 'snowdrift':
+            wandb.log({
+                    'reward_1':total_reward[0]/env_parallel_num,
+                    'reward_2':total_reward[1]/env_parallel_num,
+                    'reward_3':total_reward[2]/env_parallel_num,
+                    'reward_4':total_reward[3]/env_parallel_num,
+                    'total_reward':sum(total_reward)/env_parallel_num,
+                    'snow_num':total_sd_num/env_parallel_num,
+                   'actor loss': total_actor_loss,
+                    'critic loss': total_critic_loss,
+                    'self_loss':total_self_loss,
+                    'image_loss':total_imagine_loss,
                     'factor_1to2':total_give_factor[0][1].mean(), 'factor_1to3':total_give_factor[0][2].mean(), 'factor_1to4':total_give_factor[0][3].mean(),
                     'factor_2to1':total_give_factor[1][0].mean(), 'factor_2to3':total_give_factor[1][2].mean(), 'factor_2to4':total_give_factor[1][3].mean(),
                     'factor_3to1':total_give_factor[2][0].mean(), 'factor_3to2':total_give_factor[2][1].mean(), 'factor_3to4':total_give_factor[2][3].mean(),
-                    'factor_4to1':total_give_factor[3][0].mean(), 'factor_4to2':total_give_factor[3][1].mean(), 'factor_4to3':total_give_factor[3][2].mean()                    })
-    
+                    'factor_4to1':total_give_factor[3][0].mean(), 'factor_4to2':total_give_factor[3][1].mean(), 'factor_4to3':total_give_factor[3][2].mean()
+                    })
+        elif env.name == 'coingame':
+            wandb.log({
+                    'reward_1':total_reward[0],
+                   'reward_2':total_reward[1],
+                   'total_reward':sum(total_reward),
+                   '1to1 coin':total_coin_1to1,
+                    '1to2 coin':total_coin_1to2,
+                    '2to1 coin':total_coin_2to1,
+                    '2to2 coin':total_coin_2to2,
+                   'actor loss': total_actor_loss,
+                    'critic loss': total_critic_loss,
+                    
+                    # 'self_loss':total_self_loss,
+                    # 'image_loss':total_imagine_loss,
+                    # 'factor_1to2':total_give_factor[0][1].mean(),
+                    # 'factor_2to1':total_give_factor[1][0].mean(), 
+                    })
+        elif env.name == 'mp_cleanup':
+            wandb.log({
+                   'total_reward':sum(total_reward),
+                   'actor loss': total_actor_loss,
+                    'critic loss': total_critic_loss,
+                    # 'self_loss':total_self_loss,
+                    # 'image_loss':total_imagine_loss,
+                    # 'factor_1to2':total_give_factor[0][1].mean(), 'factor_1to3':total_give_factor[0][2].mean(), 'factor_1to4':total_give_factor[0][3].mean(),
+                    # 'factor_2to1':total_give_factor[1][0].mean(), 'factor_2to3':total_give_factor[1][2].mean(), 'factor_2to4':total_give_factor[1][3].mean(),
+                    # 'factor_3to1':total_give_factor[2][0].mean(), 'factor_3to2':total_give_factor[2][1].mean(), 'factor_3to4':total_give_factor[2][3].mean(),
+                    # 'factor_4to1':total_give_factor[3][0].mean(), 'factor_4to2':total_give_factor[3][1].mean(), 'factor_4to3':total_give_factor[3][2].mean()
+                    })
+
     epsilon = epsilon - anneal_epsilon if epsilon > min_epsilon else epsilon
     #     count += 1

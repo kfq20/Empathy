@@ -6,68 +6,68 @@ import time
 
 ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
 
-class meltingpot_cleanup():
-    def __init__(self):
-        self.name = 'clean_up'
-        self.factory = substrate.get_factory(self.name)
-        self.roles = self.factory.default_player_roles()
-        self.env = self.factory.build(self.roles)
-        self.player_num = 7
-        self.action_space = 9
-        self.channel = 3
-        self.obs_height = 11
-        self.obs_width = 11
-        self.name = 'mp_cleanup'
-        self.final_time = 1000
-        self.time = 0
+# class meltingpot_cleanup():
+#     def __init__(self):
+#         self.name = 'clean_up'
+#         self.factory = substrate.get_factory(self.name)
+#         self.roles = self.factory.default_player_roles()
+#         self.env = self.factory.build(self.roles)
+#         self.player_num = 7
+#         self.action_space = 9
+#         self.channel = 3
+#         self.obs_height = 11
+#         self.obs_width = 11
+#         self.name = 'mp_cleanup'
+#         self.final_time = 1000
+#         self.time = 0
 
-    def downsample_observation(self, array: np.ndarray, scaled) -> np.ndarray:
-        """Downsample image component of the observation.
-        Args:
-          array: RGB array of the observation provided by substrate
-          scaled: Scale factor by which to downsaple the observation
-        Returns:
-          ndarray: downsampled observation  
-        """
+#     def downsample_observation(self, array: np.ndarray, scaled) -> np.ndarray:
+#         """Downsample image component of the observation.
+#         Args:
+#           array: RGB array of the observation provided by substrate
+#           scaled: Scale factor by which to downsaple the observation
+#         Returns:
+#           ndarray: downsampled observation  
+#         """
     
-        frame = cv2.resize(
-                array, (array.shape[0]//scaled, array.shape[1]//scaled), interpolation=cv2.INTER_AREA)
-        return frame
+#         frame = cv2.resize(
+#                 array, (array.shape[0]//scaled, array.shape[1]//scaled), interpolation=cv2.INTER_AREA)
+#         return frame
 
-    def reset(self):
-        timestep = self.env.reset()
-        downsampled_timestep = timestep._replace(
-        observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
-        } for observation in timestep.observation])
-        obses = []
-        for i in range(self.player_num):
-            obses.append(downsampled_timestep.observation[i]['RGB']) # 88*88*3
-        obses = np.array(obses)
-        obses = np.transpose(obses, (0,3,1,2))
-        return obses
+#     def reset(self):
+#         timestep = self.env.reset()
+#         downsampled_timestep = timestep._replace(
+#         observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
+#         } for observation in timestep.observation])
+#         obses = []
+#         for i in range(self.player_num):
+#             obses.append(downsampled_timestep.observation[i]['RGB']) # 88*88*3
+#         obses = np.array(obses)
+#         obses = np.transpose(obses, (0,3,1,2))
+#         return obses
     
-    def step(self, action):
-        self.time += 1
-        new_timestep = self.env.step(action)
-        downsampled_newtimestep = new_timestep._replace(
-            observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
-            } for observation in new_timestep.observation])
-        new_obses = []
-        for i in range(self.player_num):
-            new_obses.append(downsampled_newtimestep.observation[i]['RGB']) # 88*88*3
-        new_obses = np.array(new_obses)
-        new_obses = np.transpose(new_obses, (0,3,1,2))
-        reward = np.array(downsampled_newtimestep.reward)
-        if self.time >= self.final_time:
-            dones = [True for _ in range(self.player_num)]
-        else:
-            dones = [False for _ in range(self.player_num)]
-        dones = np.array(dones)
-        return new_obses, reward, dones, None
+#     def step(self, action):
+#         self.time += 1
+#         new_timestep = self.env.step(action)
+#         downsampled_newtimestep = new_timestep._replace(
+#             observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
+#             } for observation in new_timestep.observation])
+#         new_obses = []
+#         for i in range(self.player_num):
+#             new_obses.append(downsampled_newtimestep.observation[i]['RGB']) # 88*88*3
+#         new_obses = np.array(new_obses)
+#         new_obses = np.transpose(new_obses, (0,3,1,2))
+#         reward = np.array(downsampled_newtimestep.reward)
+#         if self.time >= self.final_time:
+#             dones = [True for _ in range(self.player_num)]
+#         else:
+#             dones = [False for _ in range(self.player_num)]
+#         dones = np.array(dones)
+#         return new_obses, reward, dones, None
     
-    def __actionmask__(self, id):
-        actions = np.zeros((self.action_space,))
-        return 1 - actions  # available actions---output 1
+#     def __actionmask__(self, id):
+#         actions = np.zeros((self.action_space,))
+#         return 1 - actions  # available actions---output 1
 
 class CleanupEnv():
     def __init__(self):
@@ -784,7 +784,7 @@ class ModifiedCleanupEnv():
         self.waste_num_origin = 8
         self.waste_cost = 0
         self.apple_reward = 1
-        self.waste_spawn_prob = 0.4
+        self.waste_spawn_prob = 0.1
         self.final_time = 100
         self.channel = self.player_num + 3
         self.be_punished_cost = 0
@@ -792,7 +792,7 @@ class ModifiedCleanupEnv():
         self.clean_beam_len = 5
         self.name = 'cleanup'
         # self.max_apple_regeneration_rate = config["max_apple_regeneration_rate"]
-
+        self.time = 0
         self.state = None
 
     def reset(self):
@@ -938,13 +938,13 @@ class ModifiedCleanupEnv():
         actions = np.zeros((self.action_space,))
         # find current position
         x, y = self.player_pos[id, 0], self.player_pos[id, 1]
-        if x == 0 or np.sum(self.state[:self.player_num, x-1, y]) > 0:
+        if x == 0:# or np.sum(self.state[:self.player_num, x-1, y]) > 0:
             actions[0] = 1
-        if x == self.height-1 or np.sum(self.state[:self.player_num, x+1, y]) > 0:
+        if x == self.height-1:# or np.sum(self.state[:self.player_num, x+1, y]) > 0:
             actions[1] = 1
-        if y == 0 or np.sum(self.state[:self.player_num, x, y-1]) > 0:
+        if y == 0:# or np.sum(self.state[:self.player_num, x, y-1]) > 0:
             actions[2] = 1
-        if y == self.width-1 or np.sum(self.state[:self.player_num, x, y+1]) > 0:
+        if y == self.width-1:# or np.sum(self.state[:self.player_num, x, y+1]) > 0:
             actions[3] = 1
         if self.state[-3, x, y] == 0:  # not allowed to link/unlink
             actions[5] = 1
