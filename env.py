@@ -8,8 +8,7 @@ ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
 
 # class meltingpot_cleanup():
 #     def __init__(self):
-#         self.name = 'clean_up'
-#         self.factory = substrate.get_factory(self.name)
+#         self.factory = substrate.get_factory('clean_up')
 #         self.roles = self.factory.default_player_roles()
 #         self.env = self.factory.build(self.roles)
 #         self.player_num = 7
@@ -35,6 +34,7 @@ ORIENTATIONS = {"LEFT": [0, -1], "RIGHT": [0, 1], "UP": [-1, 0], "DOWN": [1, 0]}
 #         return frame
 
 #     def reset(self):
+#         self.time = 0
 #         timestep = self.env.reset()
 #         downsampled_timestep = timestep._replace(
 #         observation=[{k: self.downsample_observation(v, 8) if k == 'RGB' else v for k, v in observation.items()
@@ -478,7 +478,7 @@ class SnowDriftEnv():
                         rewards[j] += self.drift_return
 
         dones = [False for _ in range(4)]
-        if self.time >= self.final_time or np.sum(self.state[-2, :, :]) == 0: # time limit, and exist snowdrift
+        if self.time >= self.final_time: # time limit, and exist snowdrift
             for id in range(4):
                 dones[id] = True
         
@@ -596,8 +596,8 @@ class StagHuntEnv():
         self.hare_num = 4
         self.obs_height = 5
         self.obs_width = 5
-        self.height = 8
-        self.width = 8
+        self.height = 5
+        self.width = 5
         self.stag_reward = 10
         self.hare_reward = 1
         self.final_time = 30
@@ -735,19 +735,19 @@ class StagHuntEnv():
         for i in range(4):
             i_pos_x = self.player_pos[i][0]
             i_pos_y = self.player_pos[i][1]
-            o = self.state[:, max(0, i_pos_x-2):min(i_pos_x+3, 8), max(0, i_pos_y-2):min(i_pos_y+3, 8)]
+            o = self.state[:, max(0, i_pos_x-2):min(i_pos_x+3, self.height), max(0, i_pos_y-2):min(i_pos_y+3, self.width)]
             if i_pos_x - 2 < 0:
                 o = np.pad(o, ((0, 0), (2-i_pos_x, 0), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
                 o[-1, 0:2-i_pos_x, :] = 1
-            elif i_pos_x + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, i_pos_x-5), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-                o[-1, -i_pos_x+10:, :] = 1
+            elif i_pos_x + 3 > self.height:
+                o = np.pad(o, ((0, 0), (0, i_pos_x-(self.height-3)), (0, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, -i_pos_x+self.height+2:, :] = 1
             if i_pos_y - 2 < 0:
                 o = np.pad(o, ((0, 0), (0, 0), (2-i_pos_y, 0)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
                 o[-1, :, 0:2-i_pos_y] = 1
-            elif i_pos_y + 3 > 8:
-                o = np.pad(o, ((0, 0), (0, 0), (0, i_pos_y-5)), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
-                o[-1, :, -i_pos_y+10:] = 1
+            elif i_pos_y + 3 > self.width:
+                o = np.pad(o, ((0, 0), (0, 0), (0, i_pos_y-(self.width-3))), 'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                o[-1, :, -i_pos_y+self.width+2:] = 1
             obs.append(o)
         return np.array(obs)
     

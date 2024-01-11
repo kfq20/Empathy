@@ -172,8 +172,8 @@ class ACself(nn.Module):
             # nn.ReLU(),
             # nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.fc_c = nn.Linear(32*5*5+config["player_num"]*config["action_space"], 64)
-        self.fc_a = nn.Linear(32*5*5, 64)
+        self.fc_c = nn.Linear(32*config['height']*config['width']+config["player_num"]*config["action_space"], 64)
+        self.fc_a = nn.Linear(32*config['height']*config['width'], 64)
         self.actor = nn.Linear(64, config["action_space"])
         self.critic = nn.Linear(64, 1)
         self.relu = nn.ReLU()
